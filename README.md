@@ -201,7 +201,8 @@ sim-core/src/
   rng.rs          seeded PRNG (hand-rolled, mulberry32-style)
   money.rs        Money(i64) newtype, checked arithmetic
   event.rs        SimEvent, EventQueue (BinaryHeap ordered on (time, seq))
-  ledger.rs       Ledger { accounts: HashMap<String, Money> }, post() rejects unbalanced entries
+  ledger.rs       Ledger { accounts: BTreeMap<String, Money> }, post() rejects unbalanced entries
+                  (BTreeMap, not HashMap — iteration order must be deterministic for the trace hash)
   invariants.rs   InvariantCheck trait; the 6 invariants in §6.4
   ach.rs          AchState enum + transition()
   handler.rs      EventHandler trait
