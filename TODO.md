@@ -4,7 +4,7 @@
 - [ ] Remove the `add()` stubs from `sim-core/src/lib.rs` and declare the modules below in `lib.rs`.
 - [ ] Add deps to `sim-core`: `serde` (derive), `serde_json`, `blake3`; dev-dep `proptest`.
 - [ ] Agree on the shared types (README §6.1) and commit them as stubs so both sides compile:
-      `EventId`, `SimEvent`, `EventKind`, `InvariantResult { name, passed, detail }`, `LedgerSnapshot`.
+      `EventId`, `SimEvent`, `EventKind`, `InvariantResult { name, passed, message }`, `LedgerSnapshot`.
 - [ ] Merge order: B's `money.rs` lands first, since A's `simulator.rs` consumes `Ledger`/`InvariantResult`.
 
 ### Partner A: deterministic engine
@@ -16,14 +16,15 @@
 - [ ] Determinism smoke test: `run()` with the same seed ×100 gives an identical `trace_hash`.
 
 ### Partner B: money and ledger domain
-- [ ] `money.rs`: `Money(i64)`, `checked_add`/`checked_sub` (or `Add`/`Sub` returning `Option`/`Result`), `Display` as dollars.cents, serde. No float conversions.
-- [ ] `ledger.rs`: `Ledger { accounts: BTreeMap<String, Money> }`; `post(entries)` rejects unbalanced postings and overflow; `snapshot() -> LedgerSnapshot`.
-- [ ] `invariants.rs`: `InvariantCheck` trait + the invariants in README §6.4:
+- [x] `money.rs`: `Money(i64)`, `checked_add`/`checked_sub` (or `Add`/`Sub` returning `Option`/`Result`), `Display` as dollars.cents, serde. No float conversions.
+- [x] `ledger.rs`: `Ledger { accounts: BTreeMap<String, Money> }`; `post(JournalEntry)` rejects unbalanced postings and overflow; `snapshot() -> LedgerSnapshot`.
+- [x] `invariants.rs`: `InvariantCheck` trait + the invariants in README §6.4:
       - Fully implement #1 (ledger balances) and #2 (no money created/destroyed).
       - Implement #3 (one capture per intent) and #4 (refund ≤ captured) if time allows.
       - Stub #5 and #6 by name (they need provider events and reconciliation, which come later).
-- [ ] `ach.rs`: `AchState` (Initiated → Batched → Settled → Returned) + `transition()`; illegal transitions return `Err`. Test the full transition table.
-- [ ] Proptests: random balanced postings keep the ledger at sum 0; a random unbalanced posting is always rejected.
+      - See docs/partner-b-plan.md for the design and the deviations from this list.
+- [x] `ach.rs`: `AchState` (Initiated → Batched → Settled → Returned) + `transition()`; illegal transitions return `Err`. Test the full transition table.
+- [x] Proptests: random balanced postings keep the ledger at sum 0; a random unbalanced posting is always rejected.
 
 ### Done for today when
 - `cargo test`, `cargo clippy --all-targets -- -D warnings`, and `cargo fmt --check` all pass on main.

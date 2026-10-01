@@ -11,3 +11,6 @@ pub mod rng;
 pub mod shrink;
 pub mod simulator;
 pub mod trace;
+
+#[cfg(test)]
+mod test_support;
