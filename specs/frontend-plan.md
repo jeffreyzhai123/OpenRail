@@ -38,7 +38,7 @@ type AchEvent = { Returned: { entry_id: number; code: AchReturnCode; amount: Cen
 type EventKind = { Card: CardEvent } | { Ach: AchEvent };   // one variant per rail, see event.rs
 interface SimEvent { id: EventId; time: number; seq: number; kind: EventKind }
 type FaultOp =                                              // serde's default externally-tagged form
-  | { Duplicate: { event_id: EventId } } | { Reorder: { window: number } }
+  | { Duplicate: { event_id: EventId } } | { Reorder: { event_id: EventId; window: number } }
   | { Delay: { event_id: EventId; by: number } } | { Drop: { event_id: EventId } }
   | { CrashRestart: { at: number } };
 interface JournalEntry { source: EventId; intent: string; kind: "Capture" | "Refund";

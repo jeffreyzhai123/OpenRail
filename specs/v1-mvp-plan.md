@@ -23,7 +23,7 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 
 ## Gaps inside the existing specs
 1. **`RunResult` is missing `opening` and `journal`.** `frontend-plan.md` ask #4 needs both for the timeline scrubber. `run()` consumes the `Ledger`, so sim-api can't recover them afterwards. → Now folded into `deterministic-engine-plan.md` as deviation 7 (piece E6), pending approval. Later, ask #3 also needs the effective `fault_plan`.
-2. **The shrinker and sweep need a fresh handler for every run.** `run()` takes `&mut dyn EventHandler`, but a shrink or sweep runs many times. → Add a `HandlerKind { Naive, Hardened }` enum with `build() -> Box<dyn EventHandler>`, serialized as `"naive"`/`"hardened"`. That matches the frontend's `Handler` type and is what `encode_run` stores. It belongs in the handlers spec, and `run()`'s signature stays as it is.
+2. **The shrinker and sweep need a fresh handler for every run.** → Solved by `run()` taking a handler factory (`fault-injector-plan.md` decision C). Add a `HandlerKind { Naive, Hardened }` enum with `build() -> Box<dyn EventHandler>`, serialized as `"naive"`/`"hardened"`. Callers pass `&|| kind.build()`. That matches the frontend's `Handler` type and is what `encode_run` stores.
 3. **Seeds do nothing until fault generation exists** (A-spec deviation 5). Until then, every seed gives the same run, so **the sweep is meaningless** and replay-by-seed is trivial. Seed → plan generation is on the critical path, not a polish item.
 
 ## Missing specs, and the decisions each one must make
@@ -33,7 +33,7 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 - Scenario 1 (charge retried after timeout) and scenario 2 (refund before capture), as `Scenario { id, name, description, initial_ledger, workload }`. Openings must sum to zero (`Ledger::open`). Event times are simulated milliseconds (engine decision T), written with named constants such as `MS_PER_DAY`.
 - `sim-scenarios` needs a `sim-core` dependency and a `scenarios()` registry, which sim-api's `GET /scenarios` uses (frontend ask #2).
 
-**S2: fault injection** (`fault.rs`) → now specced in `fault-injector-plan.md`, with decisions R, C and O awaiting approval.
+**S2: fault injection** (`fault.rs`) → now specced in `fault-injector-plan.md`. Decisions R, C and O are approved.
 - Applying a plan is pure and draws no randomness, so shrinking never perturbs other faults. The seed only generates the initial plan.
 - `Reorder { event_id, window }` reverses a window of deliveries (R). A crash-restart rebuilds the handler from a factory while the ledger survives (C). Ops apply in fixed phases (O).
 - The hardened handler therefore has to derive idempotency from `ledger.journal()`, which is the reason the trait passes it `&Ledger`.

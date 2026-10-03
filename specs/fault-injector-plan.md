@@ -12,7 +12,7 @@ It also splits what has to stay stable:
 - **Apply semantics are the replay contract.** A replay link stores the explicit plan and the expected hash, so changing what an op does breaks old links.
 - **Generation is not.** Links don't regenerate plans, so tuning the generation rates only changes fresh runs and the sweep.
 
-## Decisions (each needs approval)
+## Decisions (approved by the user, 2026-10-03)
 ### R: what `Reorder` does
 README §6.1 has `Reorder { window: usize }`, with no anchor, and the roadmap suggested an `Rng::shuffle` over the next *n* events.
 
@@ -32,22 +32,22 @@ README §6.1 has `Reorder { window: usize }`, with no anchor, and the roadmap su
 - ❌ An extra field in every link, and a 2-event shuffle is a no-op half the time.
 - ❌ It deviates from README §6.1 too.
 
-**Recommended: B.**
+**Chosen: B.**
 
 ### C: how a crash-restart replaces the handler
-Engine deviation 1 left this to S2: `run()` takes `&mut dyn EventHandler`, which can't be rebuilt mid-run.
+Engine deviation 1 left this to S2: a borrowed `&mut dyn EventHandler` can't be rebuilt mid-run.
 
 **A. `run()` takes a factory, `new_handler: &dyn Fn() -> Box<dyn EventHandler>`**
 - ✅ A crash really loses all in-memory state: the replacement is a fresh instance, so nothing survives by mistake.
 - ✅ Tests pass closures that build test handlers, and sim-api passes `&|| kind.build()` (S1's `HandlerKind`).
-- ❌ Changes E6's signature. It's free if this is approved before E6 lands.
+- ❌ Changes E6's signature. It was approved before E6 landed, so the engine plan now builds E6 with the factory.
 
 **B. Add `fn restart(&mut self)` to `EventHandler`**
 - ✅ `run()`'s signature stays the same.
 - ❌ Every handler has to reset itself correctly. A buggy reset would hide exactly the bug that crash-restart exists to show.
 - ❌ The trait grows a method the naive handler doesn't need.
 
-**Recommended: A.**
+**Chosen: A.**
 
 ### O: the order in which a plan's ops apply
 **A. Fixed phases: Drop, then Delay, then Duplicate, then Reorder. Within a phase, ops apply in plan order.**
@@ -60,7 +60,7 @@ Engine deviation 1 left this to S2: `run()` takes `&mut dyn EventHandler`, which
 - ❌ Moving an op in the editor changes the run, which is surprising.
 - ❌ Ops that target copies need their own rules anyway.
 
-**Recommended: A.**
+**Chosen: A.**
 
 ## Other deviations from README / TODO.md (CLAUDE.md requires flagging these)
 1. **`RunResult` gains `fault_plan`, the effective plan.** README §6.1 doesn't list it. When the caller passes `None`, the generated plan has to come back, so the UI can show, edit, share and shrink it (`frontend-plan.md` ask #3). *Needs approval*, alongside engine deviation 7.
@@ -69,7 +69,7 @@ Engine deviation 1 left this to S2: `run()` takes `&mut dyn EventHandler`, which
 4. **`Rng::below(NonZeroU32)` becomes public.** Generation draws from ranges that are non-empty by construction, so the `Option` from `next_range` would only add an `unwrap`.
 
 ## What each op does (the replay contract)
-`apply_fault_plan` starts from the workload in slice order and applies the phases below. Between phases 3 and 4 it stable-sorts by time, so ties keep workload order, with copies after originals.
+`apply_fault_plan` starts from the workload in slice order and applies the phases below. Between phases 3 and 4 it stable-sorts by time, so ties keep workload order. Copies come after all originals, in their originals' order rather than plan order, so permuting `Duplicate`s changes nothing.
 
 | Op | Effect | Phase |
 |---|---|---|
@@ -96,6 +96,8 @@ Branch `fault-injector`, one commit per piece. Each is done when its tests pass 
 
 F1 and F2 are pure and only need types that already exist, so they can land before E3, E5 and E6.
 
+**Status (2026-10-03):** decisions R, C and O are approved. F1 and F2 are in progress on `fault-injector`. F3 waits on engine E6, and on approval of deviation 1 (`RunResult.fault_plan`).
+
 ---
 
 ## F1: `apply_fault_plan`
@@ -118,7 +120,8 @@ pub fn apply_fault_plan(workload: &[SimEvent], plan: &[FaultOp]) -> Result<Sched
 | Every fault is applied before the drain, as one pure function | It's testable without a simulator, and `SimError::Clock` stays unreachable. V3's dynamic faults can push into the queue later. |
 | A `Delivery` type, not a `SimEvent` with an ignored `seq` | The queue assigns `seq` (engine deviation 6). A field that's always ignored invites bugs. |
 | Crash times are kept out of the event stream | A crash isn't a business event. As an `EventKind`, it would leak into the trace and the hash. |
-| One private helper per op (`drop_event`, `delay_event`, `duplicate_event`, `reverse_window`) | Each one can be tested alone. |
+| One private helper per phase (`drop_event`, `delay_event`, `duplicate_events`, `reverse_window`) | Each one can be tested alone. `duplicate_events` handles every `Duplicate` at once, so copies follow their originals' order. |
+| `EventId` derives `Ord` | Ids key a `BTreeSet` and a `BTreeMap` here. Hashed collections are out (CLAUDE.md). |
 | `FaultError` hand-writes `Display` and `Error` | Same pattern as `LedgerError` and `ClockError`. |
 
 **Tests:**
@@ -171,10 +174,11 @@ A compile-time `assert!` checks that the per-event percentages sum to 100 or les
 ```rust
 pub fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u32,
            fault_plan: Option<&FaultPlan>,                          // None: generate from `seed`
-           new_handler: &dyn Fn() -> Box<dyn EventHandler>,         // decision C
+           new_handler: &dyn Fn() -> Box<dyn EventHandler>,         // decision C, already in E6
 ) -> Result<RunResult, SimError>;
 // RunResult gains `pub fault_plan: FaultPlan`, the effective plan (deviation 1)
 ```
+E6 takes the factory from the start (decision C), so F3 doesn't change the signature.
 Flow:
 1. `Ledger::open` → `InvalidOpening`.
 2. The plan is a clone of `fault_plan`, or `generate_fault_plan(seed, workload)` when it's `None`.
@@ -198,7 +202,7 @@ Flow:
 
 ## F4: docs sync
 - README §6.1: `Reorder { event_id, window }`, the factory in `run()`, and `RunResult.fault_plan`. README §6.5: `fault.rs` also has `generate_fault_plan()`.
-- `frontend-plan.md`: the `FaultOp` `Reorder` type gains `event_id`, and the fault editor picks its anchor from the workload, like the other ops.
+- `frontend-plan.md`: already done when R was approved. `Reorder` gained `event_id`.
 - `v1-mvp-plan.md`: feature 5 is done.
 
 ## What this means for S1's handlers
@@ -207,7 +211,7 @@ Flow:
 - **A `Drop` is only visible in V1 through #4**, when a refund's capture was dropped. A dropped refund breaks nothing V1 checks. Lost webhooks in general are what #5 and #6 cover in V4.
 
 ## Files
-- Modify: `crates/sim-core/src/fault.rs` (F1, F2), `rng.rs` (`below` becomes public, F2), `simulator.rs` (F3). F4: `README.md`, `specs/frontend-plan.md`, `specs/v1-mvp-plan.md`.
+- Modify: `crates/sim-core/src/fault.rs` (F1, F2), `event.rs` (`EventId` derives `Ord`, F1), `rng.rs` (`below` becomes public, F2), `simulator.rs` (F3). F4: `README.md`, `specs/frontend-plan.md`, `specs/v1-mvp-plan.md`.
 - No new dependencies.
 
 ## Verification

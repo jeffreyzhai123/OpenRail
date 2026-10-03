@@ -17,7 +17,7 @@ The work is split into pieces E0–E7 below. Each piece is one commit on a featu
 **Every ordering is explicit, and nothing reads ambient state.** The queue orders by `(time, seq)`, ties fall back to workload slice order, JSON uses field declaration order, and the ledger uses `BTreeMap`. Nothing reads a wall clock, a randomized hasher or the environment. Second rule: **low-level code reports, `run()` decides.** The clock, queue, trace and ledger return errors, and `run()` is the one boundary that turns them into a `SimError`.
 
 ## Deviations from TODO.md / README (CLAUDE.md requires flagging these)
-1. **`run()` takes `handler: &mut dyn EventHandler`.** README §6.1 has no handler parameter. Approved by the user. "Posts to the ledger" needs something that maps events to entries, and naive vs hardened is V1's whole demo. It also matches `frontend-plan.md` ask #1. **Not final:** crash-restart needs a fresh handler mid-run. `fault-injector-plan.md` decision C proposes a factory, `new_handler: &dyn Fn() -> Box<dyn EventHandler>`. If that's approved before E6 lands, build E6 with the factory directly.
+1. **`run()` takes a handler factory, `new_handler: &dyn Fn() -> Box<dyn EventHandler>`.** README §6.1 has no handler parameter. Approved by the user. "Posts to the ledger" needs something that maps events to entries, and naive vs hardened is V1's whole demo. It also matches `frontend-plan.md` ask #1. It's a factory rather than a borrowed handler so that a crash-restart can build a fresh one (`fault-injector-plan.md` decision C, approved).
 2. **`run()` returns `Result<RunResult, SimError>`.** README §6.1 returns a bare `RunResult`. An unbalanced opening or a structurally invalid handler entry has to surface as an error at the boundary (sim-api maps it to 4xx/5xx), not as a panic.
 3. **`hash_run(trace, journal) -> Result<String, serde_json::Error>` replaces `hash_trace(&[SimEvent]) -> String`.** Approved by the user (decision H). It hashes the journal as well as the events. It returns a `Result` because serde_json's API is fallible. It can't fail for today's types, but returning the error keeps the no-`unwrap` rule without a "provably impossible" argument that a future `EventKind` could quietly break.
 4. **A non-empty `fault_plan` returns `Err(FaultsNotSupported)` until fault injection lands.** Ignoring it silently would make a fault-injected replay link look like it ran, which is a fake result.
@@ -235,18 +235,18 @@ pub struct RunResult {
     pub trace_hash: String,
 }
 pub fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u32,
-           fault_plan: Option<&FaultPlan>, handler: &mut dyn EventHandler) -> Result<RunResult, SimError>;
+           fault_plan: Option<&FaultPlan>, new_handler: &dyn Fn() -> Box<dyn EventHandler>) -> Result<RunResult, SimError>;
 ```
 Flow:
 1. Reject a non-empty `fault_plan`. (`None` and `Some(&vec![])` are both fine.)
 2. `Ledger::open` → `InvalidOpening`.
 3. Push the workload in slice order. Each `kind` is cloned, because the queue owns its events and the workload is borrowed.
-4. Drain the queue: `advance_to`, then `handler.handle`, then `post` each entry (→ `Posting { event }`), then append to the trace.
+4. Build the handler with `new_handler()`, then drain the queue: `advance_to`, then `handler.handle`, then `post` each entry (→ `Posting { event }`), then append to the trace.
 5. `check_all`, then `hash_run(&trace, ledger.journal())`, then build `RunResult` from `snapshot()`, `opening().clone()` and `journal().to_vec()`.
 
 | Decision | Why |
 |---|---|
-| `&mut dyn EventHandler`, not generic | sim-api picks naive or hardened at runtime from the request, so one compiled `run` is enough. |
+| `&dyn Fn() -> Box<dyn EventHandler>`, not generic | sim-api picks naive or hardened at runtime from the request, so one compiled `run` is enough. It's a factory so that a crash-restart (`fault-injector-plan.md` F3) can build a fresh handler. Tests pass `&|| Box::new(CardHandler)`. |
 | `seed` is bound as `let _ = seed;` with a one-line "why" comment, and no unused `Rng` is built | Being honest about deviation 5. It will seed `Rng` for fault-plan generation (§6.2). |
 | `opening` and `journal` are cloned out of the `Ledger` | `Ledger` only lends them, and adding an `into_parts()` would touch B's file. That's one copy per run. |
 | `RunResult` derives `PartialEq` and `Serialize`, not `Deserialize` | Tests compare whole results across runs, and sim-api serializes the result. Nothing reads one back yet (YAGNI). |
