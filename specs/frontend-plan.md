@@ -1,7 +1,7 @@
 # Plan: Lightweight interactive React frontend (`frontend/`)
 
 ## Context
-README §3 V1 needs a minimal UI: a timeline, balances, an invariant panel, Run/Shrink/Share buttons, a sweep chart and replay-by-seed links. The frontend is React + TS and talks to a **stateless** `sim-api` over HTTP (§2, §6.5). Today the backend can't serve a run yet. `money`, `ledger`, `invariants` and `ach` are done, but `rng`, `clock`, `trace`, the handlers, `shrink` and `simulator::run` are empty or `unimplemented!()`, `sim-api` is still hello-world, and `sim-scenarios` is a placeholder. Node isn't installed either.
+README §3 V1 needs a minimal UI: a timeline, balances, an invariant panel, Run/Shrink/Share buttons, a sweep chart and replay-by-seed links. The frontend is React + TS and talks to a **stateless** `sim-api` over HTTP (§2, §6.5). Today the backend can't serve a run yet. `money`, `ledger`, `invariants`, `ach`, `rng`, `clock` and `trace` are done, but the event queue, the handlers, `shrink` and `simulator::run` are empty or `unimplemented!()`, `sim-api` is still hello-world, and `sim-scenarios` is a placeholder.
 
 **Decisions made with the user:**
 1. Write the **HTTP contract down now** and build the UI against checked-in JSON fixtures behind a `SimClient` interface. Swap in the real HTTP client once `sim-api` exists.

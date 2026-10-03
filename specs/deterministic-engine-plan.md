@@ -9,7 +9,9 @@ What A starts from:
 - `fault.rs`: `FaultOp` and `FaultPlan`, data only.
 - `rng.rs`, `clock.rs`, `trace.rs`: empty. `handlers/mod.rs` only declares `naive` and `hardened`. `cargo fmt --check` fails on the empty files.
 
-The work is split into pieces E0–E7 below. Each piece is one commit on branch `partner-a-engine`, names what it depends on, and is done when its own tests pass and `cargo fmt`, `cargo clippy --all-targets -- -D warnings` and `cargo test` are green.
+The work is split into pieces E0–E7 below. Each piece is one commit on a feature branch, merged into `develop` by PR. It names what it depends on, and is done when its own tests pass and `cargo fmt`, `cargo clippy --all-targets -- -D warnings` and `cargo test` are green.
+
+**Status (2026-10-03):** E0, E1, E2 and E4 are merged (PR #2, squash commit `3fc6ff3`). E3 and E5 are next. E6 also waits on approval of deviation 7, and E7 comes last.
 
 ## The principle behind most decisions below
 **Every ordering is explicit, and nothing reads ambient state.** The queue orders by `(time, seq)`, ties fall back to workload slice order, JSON uses field declaration order, and the ledger uses `BTreeMap`. Nothing reads a wall clock, a randomized hasher or the environment. Second rule: **low-level code reports, `run()` decides.** The clock, queue, trace and ledger return errors, and `run()` is the one boundary that turns them into a `SimError`.
@@ -92,18 +94,18 @@ TODO.md hashes only the popped events.
 **Chosen: B** (deviation 3).
 
 ## Pieces
-| Piece | What | Depends on |
-|---|---|---|
-| E0 | Format the empty stubs | — |
-| E1 | Seeded RNG (`rng.rs`) | E0 |
-| E2 | Virtual clock (`clock.rs`) | E0 |
-| E3 | Event queue (`event.rs`) | E0 |
-| E4 | Trace hash (`trace.rs`) | E0 |
-| E5 | `EventHandler` trait (`handlers/mod.rs`) | E0 |
-| E6 | `run()` and the determinism tests (`simulator.rs`) | E2, E3, E4, E5 |
-| E7 | Docs sync | E6 |
+| Piece | What | Depends on | Status |
+|---|---|---|---|
+| E0 | Format the empty stubs | — | ✅ PR #2 |
+| E1 | Seeded RNG (`rng.rs`) | E0 | ✅ PR #2 |
+| E2 | Virtual clock (`clock.rs`) | E0 | ✅ PR #2 |
+| E3 | Event queue (`event.rs`) | E0 | Open |
+| E4 | Trace hash (`trace.rs`) | E0 | ✅ PR #2 |
+| E5 | `EventHandler` trait (`handlers/mod.rs`) | E0 | Open |
+| E6 | `run()` and the determinism tests (`simulator.rs`) | E2, E3, E4, E5 | Open, needs deviation 7 approved |
+| E7 | Docs sync | E6 | Open |
 
-E1–E5 don't depend on each other. **Land E5 early:** it's tiny, and it unblocks the handlers track (`v1-mvp-plan.md` S1). E1 isn't on `run()`'s path yet (deviation 5). Its first consumer is fault generation (S2).
+E3 and E5 don't depend on each other. **Land E5 early:** it's tiny, and it unblocks the handlers track (`v1-mvp-plan.md` S1). E1 isn't on `run()`'s path yet (deviation 5). Its first consumer is fault generation (S2).
 
 ---
 

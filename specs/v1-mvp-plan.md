@@ -1,14 +1,14 @@
 # Plan: V1 MVP roadmap (what's missing)
 
 ## Context
-README §3 defines V1 as "a working, deployed, deterministic simulator proving the core loop end to end: inject a fault, watch it break the naive handler, share the exact failure as a link." This compares each V1 feature against `develop` at `43082a7`.
+README §3 defines V1 as "a working, deployed, deterministic simulator proving the core loop end to end: inject a fault, watch it break the naive handler, share the exact failure as a link." This compares each V1 feature against `develop` at `43082a7`, with row 1 rechecked at `3fc6ff3` (PR #2).
 
-**Bottom line:** about 2 of the 11 V1 features are done: the money ledger with invariants, and the ACH state machine. The engine has a spec but no code. **Nothing that makes up the core loop exists yet**: handlers, faults, scenarios, shrink, sweep, the API, the UI and the deploy. Five of those pieces don't have a spec either.
+**Bottom line:** about 2 of the 11 V1 features are done: the money ledger with invariants, and the ACH state machine. The engine is partly built: the RNG, clock and run hash are merged (PR #2), but the event queue, the handler trait and `run()` are still open. **Nothing that makes up the core loop exists yet**: handlers, faults, scenarios, shrink, sweep, the API, the UI and the deploy. Five of those pieces don't have a spec either.
 
 ## Feature status (README §3 V1)
 | # | V1 feature | Status | Spec |
 |---|---|---|---|
-| 1 | Virtual clock, seeded RNG, event queue, trace hashing | ❌ Empty files / `unimplemented!()` | ✅ `deterministic-engine-plan.md` |
+| 1 | Virtual clock, seeded RNG, event queue, trace hashing | 🟡 RNG, clock and `hash_run` done (PR #2). Queue, handler trait and `run()` open (E3, E5, E6) | ✅ `deterministic-engine-plan.md` |
 | 2 | `Money(i64)` ledger + balance invariants | ✅ Done (#1–#4 run; #5/#6 named, V4) | ✅ `ledger-plan.md` |
 | 3 | ACH state machine | ✅ Done (`rails/ach.rs`), but **no V1 scenario uses it** (see D2) | ✅ |
 | 4 | Naive vs hardened handler pair | ❌ `handlers/*.rs` are empty (the trait goes in `handlers/mod.rs`, defined in the A spec's E5) | ❌ |
@@ -69,11 +69,10 @@ Frontend steps 1–7 (against fixtures, can start now) ────────�
 - **D4:** The hardened handler's policy for a refund that arrives before its capture: buffer it or reject it (S1).
 
 ## Housekeeping (small, but blocks "done")
-- `cargo fmt --check` is red on `develop` (A-spec E0).
 - TODO.md: tick Step 0. README §6.1 still describes the old `EventKind` and the `ach.rs` path (A-spec E7). §6.5 was fixed in `8f711df`.
 - `main` on GitHub still exists (it's the default branch) and is behind `develop`.
 - No CI. README only requires it in V2, but CLAUDE.md calls the determinism check "the one test that must never go yellow", and today it only runs locally. A GitHub Actions job running the four cargo commands is cheap insurance.
 
 ## Verification (of this roadmap)
-- Each ❌ above was checked against the tree at `43082a7`: empty files by size, `unimplemented!()` in `simulator.rs`, empty `[dependencies]` in `sim-api` and `sim-scenarios`, and no `.github/`, `Dockerfile` or `fly.toml`.
+- Each ❌ above was checked against the tree at `43082a7`, and rechecked at `3fc6ff3`, where PR #2 touched them only with E0's whitespace: empty files by size, `unimplemented!()` in `simulator.rs`, empty `[dependencies]` in `sim-api` and `sim-scenarios`, and no `.github/`, `Dockerfile` or `fly.toml`.
 - V1 is done when README §3's definition holds on the deployed URL: run scenario 1 under naive → `single_capture_per_intent` goes red. Under hardened → all green. Share → the link opens with "verified identical". Shrink → a smaller plan. Sweep → a chart where naive fails more often than hardened.
