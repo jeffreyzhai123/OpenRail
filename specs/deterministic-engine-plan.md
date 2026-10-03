@@ -27,7 +27,7 @@ What A starts from:
 3. **`EventQueue`** in `event.rs`, with tests and a proptest.
 4. **`trace.rs`** with tests, including a pinned golden hash.
 5. **The `EventHandler` trait and `run()`**, with the determinism smoke test and end-to-end tests. This depends on steps 2–4.
-6. **Docs:** tick Step 0 and A's boxes in TODO.md, fix `docs/partner-b-plan.md` → `specs/`, and sync README §6.1 and §6.5 (the `run()` signature, the composite `EventKind`, the `rails/` paths).
+6. **Docs:** tick Step 0 and A's boxes in TODO.md, and sync README §6.1 and §6.5 (the `run()` signature, the composite `EventKind`, the `rails/` paths).
 
 Run `cargo fmt`, `cargo clippy --all-targets -- -D warnings` and `cargo test` before each commit.
 

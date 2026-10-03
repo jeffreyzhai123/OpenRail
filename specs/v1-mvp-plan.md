@@ -8,8 +8,8 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 ## Feature status (README §3 V1)
 | # | V1 feature | Status | Spec |
 |---|---|---|---|
-| 1 | Virtual clock, seeded RNG, event queue, trace hashing | ❌ Empty files / `unimplemented!()` | ✅ `partner-a-plan.md` |
-| 2 | `Money(i64)` ledger + balance invariants | ✅ Done (#1–#4 run; #5/#6 named, V4) | ✅ `partner-b-plan.md` |
+| 1 | Virtual clock, seeded RNG, event queue, trace hashing | ❌ Empty files / `unimplemented!()` | ✅ `deterministic-engine-plan.md` |
+| 2 | `Money(i64)` ledger + balance invariants | ✅ Done (#1–#4 run; #5/#6 named, V4) | ✅ `ledger-plan.md` |
 | 3 | ACH state machine | ✅ Done (`rails/ach.rs`), but **no V1 scenario uses it** (see D2) | ✅ |
 | 4 | Naive vs hardened handler pair | ❌ `handler.rs` and `handlers/*.rs` are empty (trait defined in the A spec) | ❌ |
 | 5 | Fault injector: duplicate, reorder, delay, drop, crash-restart | ❌ `FaultOp` is data only, there's no `apply_fault_plan()`, and no seed → plan generation | ❌ |
@@ -22,7 +22,7 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 | — | `sim-api` (Axum routes the UI calls) | ❌ `main.rs` is hello-world, and there are no deps (axum, tokio, serde) | ❌ (its contract lives in `frontend-plan.md`) |
 
 ## Gaps inside the existing specs
-1. **`RunResult` is missing `opening` and `journal`.** `partner-a-plan.md` says "fields unchanged", but `frontend-plan.md` ask #4 needs both for the timeline scrubber. `run()` consumes the `Ledger`, so sim-api can't recover them afterwards. → Add `opening: BTreeMap<String, Money>` and `journal: Vec<JournalEntry>` to `RunResult`. Later, ask #3 also needs the effective `fault_plan`.
+1. **`RunResult` is missing `opening` and `journal`.** `deterministic-engine-plan.md` says "fields unchanged", but `frontend-plan.md` ask #4 needs both for the timeline scrubber. `run()` consumes the `Ledger`, so sim-api can't recover them afterwards. → Add `opening: BTreeMap<String, Money>` and `journal: Vec<JournalEntry>` to `RunResult`. Later, ask #3 also needs the effective `fault_plan`.
 2. **The shrinker and sweep need a fresh handler for every run.** `run()` takes `&mut dyn EventHandler`, but a shrink or sweep runs many times. → Add a `HandlerKind { Naive, Hardened }` enum with `build() -> Box<dyn EventHandler>`, serialized as `"naive"`/`"hardened"`. That matches the frontend's `Handler` type and is what `encode_run` stores. It belongs in the handlers spec, and `run()`'s signature stays as it is.
 3. **Seeds do nothing until fault generation exists** (A-spec deviation 5). Until then, every seed gives the same run, so **the sweep is meaningless** and replay-by-seed is trivial. Seed → plan generation is on the critical path, not a polish item.
 

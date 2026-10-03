@@ -22,7 +22,7 @@
       - Fully implement #1 (ledger balances) and #2 (no money created/destroyed).
       - Implement #3 (one capture per intent) and #4 (refund ≤ captured) if time allows.
       - Stub #5 and #6 by name (they need provider events and reconciliation, which come later).
-      - See docs/partner-b-plan.md for the design and the deviations from this list.
+      - See specs/ledger-plan.md for the design and the deviations from this list.
 - [x] `ach.rs`: `AchState` (Initiated → Batched → Settled → Returned) + `transition()`; illegal transitions return `Err`. Test the full transition table.
 - [x] Proptests: random balanced postings keep the ledger at sum 0; a random unbalanced posting is always rejected.
 
