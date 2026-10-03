@@ -11,7 +11,7 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 | 1 | Virtual clock, seeded RNG, event queue, trace hashing | ❌ Empty files / `unimplemented!()` | ✅ `deterministic-engine-plan.md` |
 | 2 | `Money(i64)` ledger + balance invariants | ✅ Done (#1–#4 run; #5/#6 named, V4) | ✅ `ledger-plan.md` |
 | 3 | ACH state machine | ✅ Done (`rails/ach.rs`), but **no V1 scenario uses it** (see D2) | ✅ |
-| 4 | Naive vs hardened handler pair | ❌ `handler.rs` and `handlers/*.rs` are empty (trait defined in the A spec) | ❌ |
+| 4 | Naive vs hardened handler pair | ❌ `handlers/*.rs` are empty (the trait goes in `handlers/mod.rs`, defined in the A spec's E5) | ❌ |
 | 5 | Fault injector: duplicate, reorder, delay, drop, crash-restart | ❌ `FaultOp` is data only, there's no `apply_fault_plan()`, and no seed → plan generation | ❌ |
 | 6 | Replay-by-seed links (basic URL encoding) | ❌ No `encode_run` / `decode_run` | ❌ |
 | 7 | Shrinker, single-pass greedy | ❌ `shrink.rs` is empty | ❌ |
@@ -22,7 +22,7 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 | — | `sim-api` (Axum routes the UI calls) | ❌ `main.rs` is hello-world, and there are no deps (axum, tokio, serde) | ❌ (its contract lives in `frontend-plan.md`) |
 
 ## Gaps inside the existing specs
-1. **`RunResult` is missing `opening` and `journal`.** `deterministic-engine-plan.md` says "fields unchanged", but `frontend-plan.md` ask #4 needs both for the timeline scrubber. `run()` consumes the `Ledger`, so sim-api can't recover them afterwards. → Add `opening: BTreeMap<String, Money>` and `journal: Vec<JournalEntry>` to `RunResult`. Later, ask #3 also needs the effective `fault_plan`.
+1. **`RunResult` is missing `opening` and `journal`.** `frontend-plan.md` ask #4 needs both for the timeline scrubber. `run()` consumes the `Ledger`, so sim-api can't recover them afterwards. → Now folded into `deterministic-engine-plan.md` as deviation 7 (piece E6), pending approval. Later, ask #3 also needs the effective `fault_plan`.
 2. **The shrinker and sweep need a fresh handler for every run.** `run()` takes `&mut dyn EventHandler`, but a shrink or sweep runs many times. → Add a `HandlerKind { Naive, Hardened }` enum with `build() -> Box<dyn EventHandler>`, serialized as `"naive"`/`"hardened"`. That matches the frontend's `Handler` type and is what `encode_run` stores. It belongs in the handlers spec, and `run()`'s signature stays as it is.
 3. **Seeds do nothing until fault generation exists** (A-spec deviation 5). Until then, every seed gives the same run, so **the sweep is meaningless** and replay-by-seed is trivial. Seed → plan generation is on the critical path, not a polish item.
 
@@ -68,8 +68,8 @@ Frontend steps 1–7 (against fixtures, can start now) ────────�
 - **D4:** The hardened handler's policy for a refund that arrives before its capture: buffer it or reject it (S1).
 
 ## Housekeeping (small, but blocks "done")
-- `cargo fmt --check` is red on `develop` (A-spec step 0).
-- TODO.md: tick Step 0, and fix the `docs/` → `specs/` path. README §6.1/§6.5 still describe the old `EventKind` and the `ach.rs` path (A-spec step 6).
+- `cargo fmt --check` is red on `develop` (A-spec E0).
+- TODO.md: tick Step 0. README §6.1 still describes the old `EventKind` and the `ach.rs` path (A-spec E7). §6.5 was fixed in `8f711df`.
 - `main` on GitHub still exists (it's the default branch) and is behind `develop`.
 - No CI. README only requires it in V2, but CLAUDE.md calls the determinism check "the one test that must never go yellow", and today it only runs locally. A GitHub Actions job running the four cargo commands is cheap insurance.
 

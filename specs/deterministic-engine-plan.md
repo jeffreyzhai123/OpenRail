@@ -1,58 +1,87 @@
 # Plan: Partner A, deterministic engine (sim-core)
 
 ## Context
-Step 0 (`f65876b`) and Partner B's work (`e03a7e4`) are committed. B's seam is fixed: `Ledger::open(&[(String, i64)])`, `Ledger::post(JournalEntry)`, `invariants::check_all(&InvariantContext)`. `125cac4` made `EventKind` a composite, `Card(CardEvent) | Ach(AchEvent)`, with rail types under `rails/`. Partner A owns `rng.rs`, `clock.rs`, the `EventQueue` in `event.rs`, `trace.rs`, `simulator.rs`, and (decided with the user) the `EventHandler` trait in `handler.rs`.
+Step 0 (`f65876b`) and Partner B's work (`e03a7e4`) are committed. B's seam is fixed: `Ledger::open(&[(String, i64)])`, `Ledger::post(JournalEntry)`, `invariants::check_all(&InvariantContext)`. `125cac4` made `EventKind` a composite, `Card(CardEvent) | Ach(AchEvent)`, with rail types under `rails/`. Partner A owns `rng.rs`, `clock.rs`, the `EventQueue` in `event.rs`, `trace.rs`, `simulator.rs`, and (decided with the user) the `EventHandler` trait in `handlers/mod.rs` (`8f711df` deleted the separate `handler.rs`).
 
 What A starts from:
 - `event.rs`: `EventId`, `SimEvent { id, time, seq, kind }` with `Ord` on `(time, seq)`. **Missing:** `EventQueue`.
 - `simulator.rs`: `RunResult` and a `run()` signature whose body is `unimplemented!()`.
 - `fault.rs`: `FaultOp` and `FaultPlan`, data only.
-- `rng.rs`, `clock.rs`, `trace.rs`, `handler.rs`: empty. `cargo fmt --check` fails on them.
+- `rng.rs`, `clock.rs`, `trace.rs`: empty. `handlers/mod.rs` only declares `naive` and `hardened`. `cargo fmt --check` fails on the empty files.
+
+The work is split into pieces E0–E7 below. Each piece is one commit on branch `partner-a-engine`, names what it depends on, and is done when its own tests pass and `cargo fmt`, `cargo clippy --all-targets -- -D warnings` and `cargo test` are green.
 
 ## The principle behind most decisions below
 **Every ordering is explicit, and nothing reads ambient state.** The queue orders by `(time, seq)`, ties fall back to workload slice order, JSON uses field declaration order, and the ledger uses `BTreeMap`. Nothing reads a wall clock, a randomized hasher or the environment. Second rule: **low-level code reports, `run()` decides.** The clock, queue, trace and ledger return errors, and `run()` is the one boundary that turns them into a `SimError`.
 
 ## Deviations from TODO.md / README (CLAUDE.md requires flagging these)
-1. **`run()` takes `handler: &mut dyn EventHandler`.** README §6.1 has no handler parameter. Approved by the user. "Posts to the ledger" needs something that maps events to entries, and naive vs hardened is V1's whole demo, so this fixes the final signature now. It also matches `frontend-plan.md` ask #1.
+1. **`run()` takes `handler: &mut dyn EventHandler`.** README §6.1 has no handler parameter. Approved by the user. "Posts to the ledger" needs something that maps events to entries, and naive vs hardened is V1's whole demo. It also matches `frontend-plan.md` ask #1. **Not final:** crash-restart (`v1-mvp-plan.md` S2) loses the handler's in-memory state, so `run()` will then need a way to rebuild or reset it. Decide that in S2, not here.
 2. **`run()` returns `Result<RunResult, SimError>`.** README §6.1 returns a bare `RunResult`. An unbalanced opening or a structurally invalid handler entry has to surface as an error at the boundary (sim-api maps it to 4xx/5xx), not as a panic.
-3. **`hash_trace` returns `Result<String, serde_json::Error>`.** The TODO says `-> String`. serde_json's API is fallible. It can't fail for today's types, but returning the error keeps the no-`unwrap` rule without a "provably impossible" argument that a future `EventKind` could quietly break.
+3. **The trace hash returns `Result<String, serde_json::Error>`.** The TODO says `-> String`. serde_json's API is fallible. It can't fail for today's types, but returning the error keeps the no-`unwrap` rule without a "provably impossible" argument that a future `EventKind` could quietly break.
 4. **A non-empty `fault_plan` returns `Err(FaultsNotSupported)` until fault injection lands.** Ignoring it silently would make a fault-injected replay link look like it ran, which is a fake result.
 5. **`seed` is accepted but not used yet.** Until faults exist, nothing random happens in a run. The determinism test still proves the pipeline has no hidden nondeterminism, such as hasher order or ambient state. It doesn't prove that seeded faults replay; it covers that once faults land.
 6. **The `seq` in workload events is ignored.** The queue assigns `seq` at push, so a scenario's slice order is its tie-break. `Scenario.workload` stays `Vec<SimEvent>` for now.
+7. **`RunResult` gains `opening` and `journal`.** *Needs approval.* README §6.1 lists only `trace`, `ledger`, `invariants` and `trace_hash`. `run()` consumes the `Ledger`, so nothing after it can recover them, and the timeline scrubber needs both (`frontend-plan.md` ask #4, `v1-mvp-plan.md` gap 1).
 
-## Order of work (branch `partner-a-engine`, one commit per step)
-0. **`cargo fmt`** so the empty stubs pass `fmt --check` (it only adds whitespace).
-1. **`rng.rs`** with tests.
-2. **`clock.rs`** with tests.
-3. **`EventQueue`** in `event.rs`, with tests and a proptest.
-4. **`trace.rs`** with tests, including a pinned golden hash.
-5. **The `EventHandler` trait and `run()`**, with the determinism smoke test and end-to-end tests. This depends on steps 2–4.
-6. **Docs:** tick Step 0 and A's boxes in TODO.md, and sync README §6.1 and §6.5 (the `run()` signature, the composite `EventKind`, the `rails/` paths).
+## Open decision
+**H: what the trace hash covers.** *Blocks E4.* TODO.md hashes only the popped events. That proves event order but not the outcome:
+- Naive and hardened runs of the same plan get the same hash.
+- A replay can show "verified identical" while its balances differ, e.g. after a handler change.
+- A handler that iterates a `HashMap` goes unnoticed across processes.
 
-Run `cargo fmt`, `cargo clippy --all-targets -- -D warnings` and `cargo test` before each commit.
+**Recommended:** hash `(trace, journal)`. This deviates from TODO's `hash_trace(&[SimEvent])`. Either way, the choice is part of the replay encoding, so changing it later needs a version bump (§6.2).
+
+## Pieces
+| Piece | What | Depends on |
+|---|---|---|
+| E0 | Format the empty stubs | — |
+| E1 | Seeded RNG (`rng.rs`) | E0 |
+| E2 | Virtual clock (`clock.rs`) | E0 |
+| E3 | Event queue (`event.rs`) | E0 |
+| E4 | Trace hash (`trace.rs`) | E0, decision H |
+| E5 | `EventHandler` trait (`handlers/mod.rs`) | E0 |
+| E6 | `run()` and the determinism tests (`simulator.rs`) | E2, E3, E4, E5 |
+| E7 | Docs sync | E6 |
+
+E1–E5 don't depend on each other. **Land E5 early:** it's tiny, and it unblocks the handlers track (`v1-mvp-plan.md` S1). E1 isn't on `run()`'s path yet (deviation 5). Its first consumer is fault generation (S2).
 
 ---
 
-## `rng.rs`
+## E0: Format the empty stubs
+- Run `cargo fmt`. It only adds whitespace to the 6 empty files: `clock.rs`, `rng.rs`, `trace.rs`, `shrink.rs`, `handlers/naive.rs` and `handlers/hardened.rs`.
+- **Done when:** `cargo fmt --check` passes.
+
+## E1: Seeded RNG (`rng.rs`)
 ```rust
 const MULBERRY32_INCREMENT: u32 = 0x6D2B_79F5;
 pub struct Rng { state: u32 }
 impl Rng {
-    pub fn from_seed(seed: u64) -> Rng;                           // state = (seed ^ (seed >> 32)) as u32
-    pub fn next_u32(&mut self) -> u32;                            // mulberry32
+    pub fn from_seed(seed: u64) -> Rng;                             // state = (seed ^ (seed >> 32)) as u32
+    pub fn next_u32(&mut self) -> u32;                              // mulberry32
     pub fn next_range(&mut self, range: Range<u32>) -> Option<u32>; // None if empty
-    pub fn shuffle<T>(&mut self, items: &mut [T]);                // Fisher–Yates
+    pub fn shuffle<T>(&mut self, items: &mut [T]);                  // Fisher–Yates
+    fn below(&mut self, bound: NonZeroU32) -> u32;                  // uniform in 0..bound
 }
 ```
 | Decision | Why |
 |---|---|
 | Fold the seed by XORing its two halves | Every bit of the u64 seed affects the state, and the rule fits in one line. **Honest limit:** there are only 2^32 streams, so some distinct seeds collide (e.g. `0` and `0x1_0000_0001`). Separately, mulberry32 seeds `s` and `s + 0x6D2B79F5` produce the same stream shifted by one. Same seed → same run still holds, and that's the guarantee replay needs. |
 | `wrapping_*` arithmetic everywhere | mulberry32 is defined mod 2^32. A plain `*` would panic in debug builds. |
-| `next_range` uses rejection sampling (arc4random_uniform style), not `%` | `% n` biases toward small values. The loop only draws from the seeded stream, so it stays deterministic. |
+| `next_range` and `shuffle` share a private `below(NonZeroU32)` | "Non-empty" lives in the type, so `shuffle` never unwraps `next_range`'s `Option`. `NonZeroU32::MIN.saturating_add(i as u32)` builds `i + 1` with no `Option`. |
+| `below` uses rejection sampling (arc4random_uniform style), not `%` | `% n` biases toward small values. The loop only draws from the seeded stream, so it stays deterministic. |
 | `Range<u32>` only, no u64/usize variants | YAGNI. The only consumer is `shuffle` (and later the `Reorder` window). |
-| `shuffle` does `assert!(items.len() <= u32::MAX as usize)` and then casts indices with `as u32` | It states an invariant the type can't encode (CLAUDE.md). A trace with 4 billion events isn't a real input. |
+| `shuffle` does `assert!(items.len() <= u32::MAX as usize)` before casting indices with `as u32` | It states an invariant the type can't encode (CLAUDE.md). A trace with 4 billion events isn't a real input. |
 
-## `clock.rs`
+**Tests:**
+- **Golden values come from the reference implementation, not our own output.** The first 5 `next_u32` values match Tommy Ettinger's JS mulberry32, taking the u32 before the `/ 2^32`. JS and Python ports agree on these:
+  - seed 0: `1144304738, 1416247, 958946056, 627933444, 2007157716`
+  - seed 42: `2581720956, 1925393290, 3661312704, 2876485805, 750819978` (the seed E6 uses)
+- The fold is pinned: `from_seed(1 << 32)` gives the same stream as `from_seed(1)`.
+- The same seed gives identical first 1,000 outputs. The 16-value prefixes for seeds 0..100 are pairwise distinct.
+- `next_range` returns `None` for an empty range, always stays in range (proptest), and a single-value range always returns its start.
+- `shuffle` produces a permutation, is deterministic for a given seed, and leaves 0- and 1-element slices unchanged.
+
+## E2: Virtual clock (`clock.rs`)
 ```rust
 #[derive(Default)] pub struct VirtualClock { now: u64 }   // starts at tick 0
 impl VirtualClock { pub fn now(&self) -> u64; pub fn advance_to(&mut self, t: u64) -> Result<(), ClockError>; }
@@ -65,7 +94,9 @@ pub enum ClockError { Backwards { now: u64, requested: u64 } }
 | No `advance_by` | YAGNI. `Delay` faults will compute absolute times. |
 | `ClockError` hand-writes `Display` and `Error` | Same pattern as `LedgerError`, no `thiserror`. |
 
-## `EventQueue` (`event.rs`)
+**Tests:** Starts at 0. Moving forward or staying at the same tick is `Ok`. Moving backwards is `Err(Backwards { now, requested })` and `now` is unchanged.
+
+## E3: Event queue (`event.rs`)
 ```rust
 #[derive(Default)] pub struct EventQueue { heap: BinaryHeap<Reverse<SimEvent>>, next_seq: u64 }
 impl EventQueue {
@@ -79,16 +110,28 @@ impl EventQueue {
 | `Reverse<SimEvent>` on top of the existing `(time, seq)` `Ord` | The hard rule says order on `(time, seq)`, never on payload. Note that `Ord` ignores `id` and `kind` while `Eq` compares them; that's sound here only because `seq` is unique within a queue. |
 | No `len`, `is_empty` or `peek` | YAGNI. `run()` drains it with `while let Some`. |
 
-## `trace.rs`
+**Tests:** Same-time events pop in push order. An earlier time pushed later pops first. A proptest draws times from a small range to force ties, and checks that pops are strictly increasing in `(time, seq)` and the pop count equals the push count.
+
+## E4: Trace hash (`trace.rs`)
+*Blocked on decision H.* The signature depends on the answer:
 ```rust
-pub fn hash_trace(events: &[SimEvent]) -> Result<String, serde_json::Error>; // blake3(serde_json::to_vec(events)) as 64 lowercase hex chars
+// H = events + journal (recommended)
+pub fn hash_run(trace: &[SimEvent], journal: &[JournalEntry]) -> Result<String, serde_json::Error>; // blake3(serde_json::to_vec(&(trace, journal)))
+// H = events only (TODO.md)
+pub fn hash_trace(events: &[SimEvent]) -> Result<String, serde_json::Error>;                         // blake3(serde_json::to_vec(events))
+// Either way, the output is 64 lowercase hex chars.
 ```
 | Decision | Why |
 |---|---|
-| "Canonical JSON" is plain `serde_json::to_vec` | Derived `Serialize` emits fields in declaration order with externally tagged enums and exact integers. The types have no maps and no floats, so the bytes are a pure function of the values. Any future map must be a `BTreeMap`. |
-| A golden-hash test pins the output | Changing a field order, a variant name or a field changes every hash and breaks "verified identical" on old replay links. The golden test turns that into a deliberate decision that comes with a replay-encoding version bump (§6.2). It's also the cross-process check, since an in-process repeat can't catch a per-process difference. |
+| "Canonical JSON" is plain `serde_json::to_vec` | Derived `Serialize` emits fields in declaration order with externally tagged enums and exact integers. The hashed types have no maps and no floats, so the bytes are a pure function of the values. Any future map must be a `BTreeMap`. |
+| A golden-hash test pins the output | Changing a field order, a variant name or a field changes every hash and breaks "verified identical" on old replay links. The golden test turns that into a deliberate decision that comes with a replay-encoding version bump (§6.2). |
 
-## `handler.rs`
+**Tests:**
+- Hashing the same input twice gives the same 64-hex string. An empty input hashes fine.
+- The golden hash for a fixed 3-event trace (Card Captured, Card Refunded, Ach Returned) matches. Under H = events + journal, the input also includes the trace's 2 journal entries.
+- Changing `time`, `seq`, `id` or an amount changes the hash, and so does swapping two events. Under H = events + journal, so does changing or dropping a journal entry.
+
+## E5: `EventHandler` trait (`handlers/mod.rs`)
 ```rust
 pub trait EventHandler {
     /// Journal entries this event produces. The simulator posts them.
@@ -99,11 +142,13 @@ pub trait EventHandler {
 |---|---|
 | Returns entries instead of mutating the ledger | `run()` is the only caller of `post()`, so it can tie a rejection to the event that caused it, and handlers can be tested without a simulator. No hidden side effects. |
 | `&mut self` | The hardened handler needs memory (seen event ids, per-entry `AchState`). That's domain state, which CLAUDE.md allows. |
-| Read-only `&Ledger` | A handler may look at balances or the journal, e.g. hardened checking for a prior capture. It costs nothing and avoids a signature change later. |
+| Read-only `&Ledger` | A handler may look at balances or the journal, e.g. hardened checking for a prior capture, and after a crash-restart (S2) the journal is the only memory left. |
 | No `Result` | A bad ordering is the handler's to handle or mishandle, and the invariants judge the result (Partner B's principle). Structurally invalid entries are caught by `post()`. |
-| `naive.rs` and `hardened.rs` stay empty | Not today (TODO "Explicitly NOT today"). |
+| `naive.rs` and `hardened.rs` stay empty | Not today (TODO "Explicitly NOT today"). They're `v1-mvp-plan.md` S1. |
 
-## `simulator.rs`
+**Tests:** none of its own. It's a trait with no logic, and E6's test handler exercises it.
+
+## E6: `run()` and the determinism tests (`simulator.rs`)
 ```rust
 pub enum SimError {
     InvalidOpening(LedgerError),
@@ -112,7 +157,15 @@ pub enum SimError {
     Posting { event: EventId, error: LedgerError },
     TraceEncoding(serde_json::Error),
 }
-#[derive(Debug, Clone, PartialEq, Serialize)] pub struct RunResult { trace, ledger, invariants, trace_hash }  // fields unchanged
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RunResult {
+    pub trace: Vec<SimEvent>,
+    pub opening: BTreeMap<String, Money>, // deviation 7
+    pub journal: Vec<JournalEntry>,       // deviation 7
+    pub ledger: LedgerSnapshot,
+    pub invariants: Vec<InvariantResult>,
+    pub trace_hash: String,
+}
 pub fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u64,
            fault_plan: Option<&FaultPlan>, handler: &mut dyn EventHandler) -> Result<RunResult, SimError>;
 ```
@@ -121,33 +174,40 @@ Flow:
 2. `Ledger::open` → `InvalidOpening`.
 3. Push the workload in slice order. Each `kind` is cloned, because the queue owns its events and the workload is borrowed.
 4. Drain the queue: `advance_to`, then `handler.handle`, then `post` each entry (→ `Posting { event }`), then append to the trace.
-5. `check_all`, then `hash_trace`, then `snapshot`.
+5. `check_all`, then the E4 hash, then build `RunResult` from `snapshot()`, `opening().clone()` and `journal().to_vec()`.
 
 | Decision | Why |
 |---|---|
 | `&mut dyn EventHandler`, not generic | sim-api picks naive or hardened at runtime from the request, so one compiled `run` is enough. |
 | `seed` is bound as `let _ = seed;` with a one-line "why" comment, and no unused `Rng` is built | Being honest about deviation 5. It will seed `Rng` for fault-plan generation (§6.2). |
-| `RunResult` derives `PartialEq` and `Serialize` | Tests compare whole results across runs, and sim-api serializes the result. There's no `Deserialize` because of `InvariantResult.name: &'static str` (see B's flag). |
+| `opening` and `journal` are cloned out of the `Ledger` | `Ledger` only lends them, and adding an `into_parts()` would touch B's file. That's one copy per run. |
+| `RunResult` derives `PartialEq` and `Serialize`, not `Deserialize` | Tests compare whole results across runs, and sim-api serializes the result. Nothing reads one back yet (YAGNI). |
+| `SimError::Clock` can't fire in V1 | Every event is pushed before the drain, so pops never go back in time. The variant guards S2, where faults push during the drain. E2's tests cover the error itself. |
 | `SimError` hand-writes `Display` and `Error` | Same pattern as `LedgerError`. |
 
-## Tests (all deterministic; proptests use `crate::test_support::proptest_config()`)
-- **rng:** The same seed gives identical first 1,000 outputs. A golden first-5 outputs for seed 0 pins the algorithm. The 16-value prefixes for seeds 0..100 are pairwise distinct. `next_range` returns `None` for an empty range, always stays in range (proptest), and a single-value range always returns its start. `shuffle` produces a permutation, is deterministic for a given seed, and leaves 0- and 1-element slices unchanged.
-- **clock:** Starts at 0. Moving forward or staying at the same tick is `Ok`. Moving backwards is `Err(Backwards { now, requested })` and `now` is unchanged.
-- **queue:** Same-time events pop in push order. An earlier time pushed later pops first. Proptest with times drawn from a small range to force ties: pops are strictly increasing in `(time, seq)`, and the pop count equals the push count.
-- **trace:** Hashing the same input twice gives the same 64-hex string. The golden hash for a fixed 3-event trace (Card Captured, Card Refunded, Ach Returned) matches. Changing `time`, `seq`, `id` or an amount changes the hash, and so does swapping two events. An empty trace hashes fine.
-- **simulator**, using a test-only `CardHandler` (Captured → `Capture` transfer `external:card`→`merchant` with intent `charge-{id}`, Refunded → `Refund`, everything else → no entries) and a fixed workload that has two same-time events and is out of time order in the slice:
-  - **Determinism smoke (the test that must never go yellow):** 100 runs with seed 42 all give an identical `RunResult` and `trace_hash`.
-  - The trace is in `(time, seq)` order, and same-time events keep their workload order.
-  - The clean workload ends with the expected balances, and all 4 invariants pass.
-  - **Seam check:** a duplicated capture (new `EventId`, same `charge_id`) makes `single_capture_per_intent` fail while the others pass, end to end through `run()`.
-  - Failure paths: an unbalanced opening gives `InvalidOpening`. A non-empty plan gives `FaultsNotSupported`. A handler that emits an unbalanced entry gives `Posting` with that event's id. An empty workload gives `Ok`, with an empty trace and the hash of `[]`.
+**Tests** use a test-only `CardHandler`: Captured → a `Capture` transfer `external:card`→`merchant` with intent `charge-{id}`, Refunded → `Refund`, everything else → no entries. The fixed workload has two same-time events and is out of time order in the slice. Proptests use `crate::test_support::proptest_config()`.
+- **Determinism smoke (the test that must never go yellow):** 100 runs with seed 42 all give an identical `RunResult` and `trace_hash`.
+- **Golden full-run hash:** `run()` on the fixed workload gives a pinned `trace_hash`. This is the cross-process check, since the ×100 test runs in one process and can't see a per-process difference. Under H = events + journal, it also covers the handler and ledger path.
+- The trace is in `(time, seq)` order, and same-time events keep their workload order.
+- The clean workload ends with the expected balances, and all 4 invariants pass. `opening` equals the input, and `journal` holds one entry per posted entry, in posting order.
+- **Seam check:** a duplicated capture (new `EventId`, same `charge_id`) makes `single_capture_per_intent` fail while the others pass, end to end through `run()`.
+- Failure paths: an unbalanced opening gives `InvalidOpening`. A non-empty plan gives `FaultsNotSupported`. A handler that emits an unbalanced entry gives `Posting` with that event's id. An empty workload gives `Ok`, with an empty trace and the hash of empty input.
+
+**Done when:** TODO.md's "Done for today when" holds. The gates are green, `run()` produces a stable `trace_hash` (both the golden and the ×100 tests), and none of the forbidden items are in `sim-core`.
+
+## E7: Docs sync
+- TODO.md: tick Step 0 and A's boxes.
+- README §6.1: the `run()` signature (handler, `Result`), `RunResult`'s new fields, the composite `EventKind`, the `sim-core/src/ach.rs` comment (now `rails/ach.rs`), and the hash's input if H changes it.
+- README §6.5 (`8f711df` already fixed the `rails/` and `handlers/mod.rs` paths): `simulator.rs` lists `Simulation::run()`, but it lands as a free `run()`, and `trace.rs` needs updating if H renames the function.
+- `v1-mvp-plan.md`: flip feature 1's status to done, and mark gap 1 resolved.
+
+---
 
 ## Files
-- Modify: `crates/sim-core/src/rng.rs`, `clock.rs`, `event.rs`, `trace.rs`, `handler.rs`, `simulator.rs`. In step 6: `TODO.md`, `README.md`.
+- Modify: `crates/sim-core/src/rng.rs`, `clock.rs`, `event.rs`, `trace.rs`, `handlers/mod.rs`, `simulator.rs`. In E7: `TODO.md`, `README.md`, `specs/v1-mvp-plan.md`.
 - Only `cargo fmt` touches: `shrink.rs`, `handlers/naive.rs`, `handlers/hardened.rs`.
 - Not touched: B's files (`money`, `ledger`, `invariants`, `rails/*`), `lib.rs`, `Cargo.toml` (no new deps).
 
 ## Verification
-- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` pass after every step.
+- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` pass after every piece.
 - `grep -rn "HashMap\|HashSet\|f64\|tokio\|rand::\|unimplemented!" crates/sim-core/src` finds nothing except the `From<f64>` doc comment in `money.rs`.
-- TODO.md's "Done for today when" holds: the gates are green, `run()` produces a stable `trace_hash` (both the golden and the ×100 tests), and none of the forbidden items are in `sim-core`.
