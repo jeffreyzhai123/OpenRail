@@ -16,7 +16,7 @@ README §3 V1 needs a minimal UI: a timeline, balances, an invariant panel, Run/
 ## Deviations / backend asks (CLAUDE.md: each needs explicit approval)
 | # | Ask | Why |
 |---|---|---|
-| 1 | Add a `handler: "naive" \| "hardened"` input to run, replay and shrink, and include it in `encode_run` | README §6.1's `run()` has no handler parameter, but V1's whole demo is naive breaking while hardened holds. |
+| 1 | Add a `handler: "naive" \| "hardened"` input to run, replay and shrink, and include it in `encode_run` | README §6.1's `run()` has no handler parameter, but V1's whole demo is naive breaking while hardened holds. The core side (`run()` takes `&mut dyn EventHandler`) is in `specs/partner-a-plan.md`. |
 | 2 | New `GET /scenarios` → id, name, description, accounts, workload | It isn't in §6.5's route list. The UI needs the scenario list, and the fault editor needs workload event ids to target. |
 | 3 | `RunResponse.fault_plan` is the **effective** plan, i.e. the seed-generated one when the request sends `null` | §6.2 treats the plan as explicit data. The UI must show that plan so the user can edit or shrink it. |
 | 4 | `RunResponse` also exposes `opening` + `journal` (`JournalEntry` is already serde) | Needed for the timeline scrubber: "balances at step k". Today `RunResult` only has the final `LedgerSnapshot`. |
@@ -29,8 +29,14 @@ README §3 V1 needs a minimal UI: a timeline, balances, an invariant panel, Run/
 ## API contract v1 (`frontend/src/api/types.ts` mirrors serde output exactly)
 ```ts
 type Cents = number; type EventId = number;                 // safe integers, checked at decode
-type EventKind = "Charge" | "Refund" | "AchReturn" | "Webhook";
-interface SimEvent { id: EventId; time: number; seq: number; kind: EventKind; payload: unknown }
+type CardEvent =                                            // crates/sim-core/src/rails/card.rs
+  | { Authorized: { charge_id: number; amount: Cents } }
+  | { Captured: { charge_id: number; amount: Cents } }
+  | { Refunded: { charge_id: number; amount: Cents } };
+type AchReturnCode = "R01" | "R02" | "R03" | "R04" | { Other: string };
+type AchEvent = { Returned: { entry_id: number; code: AchReturnCode; amount: Cents } }; // rails/ach.rs
+type EventKind = { Card: CardEvent } | { Ach: AchEvent };   // one variant per rail, see event.rs
+interface SimEvent { id: EventId; time: number; seq: number; kind: EventKind }
 type FaultOp =                                              // serde's default externally-tagged form
   | { Duplicate: { event_id: EventId } } | { Reorder: { window: number } }
   | { Delay: { event_id: EventId; by: number } } | { Drop: { event_id: EventId } }
@@ -79,7 +85,7 @@ frontend/  package.json  vite.config.ts (dev proxy /api -> :3000)  tsconfig.json
     Controls.tsx        scenario picker + description, seed input + random button, handler toggle, Run / Share
     FaultPlanEditor.tsx list ops; add (type + fields, event pickers drawn from the workload); remove;
                         "reset to seed plan"; marks a plan as edited when it diverges from the seed
-    Timeline.tsx        ordered trace (time, seq, kind, id), click or ←/→ to step, payload detail
+    Timeline.tsx        ordered trace (time, seq, kind, id), click or ←/→ to step, event detail
     BalancePanel.tsx    balances at the selected step, change vs the previous step highlighted
     InvariantPanel.tsx  pass/fail per named invariant + message; a "Shrink" button on each failure
     ReplayBadge.tsx, ErrorBanner.tsx
