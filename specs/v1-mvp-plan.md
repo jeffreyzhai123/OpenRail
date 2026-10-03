@@ -30,20 +30,21 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 **S1: handlers + scenarios** (`handlers/naive.rs`, `hardened.rs`, `sim-scenarios`)
 - Naive: posts on every Captured or Refunded event, with no deduplication and no ordering checks.
 - Hardened: deduplicates by intent, and decides what to do with a refund that arrives before its capture: buffer it until the capture arrives, or reject it and post nothing.
-- Scenario 1 (charge retried after timeout) and scenario 2 (refund before capture), as `Scenario { id, name, description, initial_ledger, workload }`. Openings must sum to zero (`Ledger::open`).
+- Scenario 1 (charge retried after timeout) and scenario 2 (refund before capture), as `Scenario { id, name, description, initial_ledger, workload }`. Openings must sum to zero (`Ledger::open`). Event times are simulated milliseconds (engine decision T), written with named constants such as `MS_PER_DAY`.
 - `sim-scenarios` needs a `sim-core` dependency and a `scenarios()` registry, which sim-api's `GET /scenarios` uses (frontend ask #2).
 
 **S2: fault injection** (`fault.rs`)
 - What each op does to the queue: `Duplicate` (when the copy arrives), `Reorder { window }` (an `Rng::shuffle` over the next *n* events), `Delay`, `Drop`, `CrashRestart { at }`.
 - **Crash-restart semantics.** Proposed: the ledger survives (it's the durable store) and the handler is rebuilt via `HandlerKind::build()`, so any in-memory deduplication is lost. The hardened handler therefore has to derive idempotency from `ledger.journal()`, which is the reason the trait passes it `&Ledger`.
 - **Seed → initial `FaultPlan`** (§6.2): which ops, which events, and the rates as named constants. After generation the plan is plain data (`RunResult.fault_plan`), so shrinking never consumes RNG.
+- **Applying a fault must not draw from a shared RNG stream.** If `Reorder` calls `Rng::shuffle` while the run executes, then removing an earlier fault during shrinking shifts the draws every later fault sees, which §6.2 rules out. Either `Reorder` records its permutation at generation time, or each fault gets its own stream.
 
 **S3: shrink + sweep** (`shrink.rs`, `simulator.rs`)
 - Greedy single pass: try removing each `FaultOp` once, and keep the removal if the *same named* invariant still fails. Report `candidates_tried`. Never say "minimal" (§6.3).
 - Sweep: for seeds `start..start+count` × {naive, hardened}, count the runs with any failed invariant. Cap `count` with a named constant.
 
 **S4: sim-api + replay encoding** (`sim-api`)
-- Routes: `POST /run`, `GET /replay/:encoded`, `POST /shrink`, `POST /sweep`, plus `GET /scenarios`. Use the error envelope and the DTOs from `frontend-plan.md`, with the seed as a decimal string.
+- Routes: `POST /run`, `GET /replay/:encoded`, `POST /shrink`, `POST /sweep`, plus `GET /scenarios`. Use the error envelope and the DTOs from `frontend-plan.md`, with the seed as a `u32` JSON number (engine decision W).
 - `encode_run` in V1 is "basic URL encoding" (README §3): versioned JSON → base64url, **without compression** (compression is the §6.2 / V2 target). That keeps the deps to axum, tokio, serde, tower-http (CORS) and a base64 implementation.
 - CLAUDE.md's network-failure rule applies only here: body size limit, request timeout, sweep and shrink caps, and turning `SimError` into a 4xx/5xx response.
 - The golden-fixture test (frontend ask #7).

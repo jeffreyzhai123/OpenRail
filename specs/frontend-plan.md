@@ -10,7 +10,7 @@ README §3 V1 needs a minimal UI: a timeline, balances, an invariant panel, Run/
 ## Principles
 - **The frontend displays results. It never decides them.** Invariants, shrinking, the replay encoding and fault-plan generation all live server-side. The browser holds inputs (scenario, seed, handler, fault plan) and renders `RunResponse`s.
 - **Minimal dependencies**, matching CLAUDE.md. Runtime deps are `react` and `react-dom` only. No router, state library, chart library, CSS framework, schema library or compression library.
-- **JS has no i64.** Cents, time, seq and event ids are `number`s that the decoder checks with `Number.isSafeInteger` and rejects at the boundary otherwise. The **seed travels as a decimal string**. `formatCents` uses BigInt and never divides as a float.
+- **JS has no i64.** Cents, time, seq and event ids are `number`s that the decoder checks with `Number.isSafeInteger` and rejects at the boundary otherwise. `time` is simulated milliseconds (`deterministic-engine-plan.md` decision T). The seed is a `u32` (decision W), so it's a `number` too, and the decoder also checks it's within `0..=4294967295`. `formatCents` uses BigInt and never divides as a float.
 - **The network boundary handles failures** (`api/client.ts`). It applies timeouts, retries idempotent calls once, validates every response, and aborts superseded requests, so a slow old response can't overwrite a newer one.
 
 ## Deviations / backend asks (CLAUDE.md: each needs explicit approval)
@@ -20,7 +20,7 @@ README §3 V1 needs a minimal UI: a timeline, balances, an invariant panel, Run/
 | 2 | New `GET /scenarios` → id, name, description, accounts, workload | It isn't in §6.5's route list. The UI needs the scenario list, and the fault editor needs workload event ids to target. |
 | 3 | `RunResponse.fault_plan` is the **effective** plan, i.e. the seed-generated one when the request sends `null` | §6.2 treats the plan as explicit data. The UI must show that plan so the user can edit or shrink it. |
 | 4 | `RunResponse` also exposes `opening` + `journal` (`JournalEntry` is already serde) | Needed for the timeline scrubber: "balances at step k". Today `RunResult` only has the final `LedgerSnapshot`. |
-| 5 | Serialize the seed as a decimal **string** on the wire | `JSON.parse` silently rounds u64 values above 2^53, which would break replay-by-seed without any error. |
+| 5 | ~~Serialize the seed as a decimal string on the wire~~ **Withdrawn.** | The seed is now a `u32` (`deterministic-engine-plan.md` decision W), and `JSON.parse` reads every `u32` exactly. |
 | 6 | CORS for the static frontend origin (`tower-http`), unless both are served from one origin | §2 deploys the API and the static frontend separately. |
 | 7 | Golden-fixture test in `sim-api` (`UPDATE_FIXTURES=1` regenerates `frontend/src/api/fixtures/*.json`) | Keeps the Rust DTOs and the TS types in lockstep without a codegen dependency. |
 | 8 | **V1 shrink shows no live progress.** It shows a busy state, then "N candidates tried" | §6.3 asks for progress in the UI. Live progress needs streaming (SSE), so it's deferred to V2's ddmin (≤500 runs). V1's greedy pass is a handful of runs. |
@@ -47,13 +47,13 @@ interface InvariantResult { name: string; passed: boolean; message: string | nul
 type Handler = "naive" | "hardened";
 
 GET  /scenarios            -> { id, name, description, accounts: string[], workload: SimEvent[] }[]
-POST /run    { scenario_id, seed: string, handler, fault_plan: FaultOp[] | null } -> RunResponse
+POST /run    { scenario_id, seed: number, handler, fault_plan: FaultOp[] | null } -> RunResponse
 GET  /replay/:encoded      -> RunResponse
 POST /shrink { scenario_id, seed, handler, fault_plan, invariant: string }
              -> { original: FaultOp[]; shrunk: FaultOp[]; invariant; candidates_tried: number; run: RunResponse }
-POST /sweep  { scenario_id, seed_start: string, count: number }
+POST /sweep  { scenario_id, seed_start: number, count: number }
              -> { count; naive: { failed: number }; hardened: { failed: number } }   // counts; UI computes %
-RunResponse = { scenario_id, seed: string, handler, fault_plan: FaultOp[], trace: SimEvent[],
+RunResponse = { scenario_id, seed: number, handler, fault_plan: FaultOp[], trace: SimEvent[],
                 opening: Record<string, Cents>, journal: JournalEntry[],
                 ledger: { accounts: Record<string, Cents> }, invariants: InvariantResult[],
                 trace_hash: string, replay: string /* encode_run output */ }
@@ -75,7 +75,7 @@ frontend/  package.json  vite.config.ts (dev proxy /api -> :3000)  tsconfig.json
     fixtures/*.json                scenarios, run (naive+hardened × 2 scenarios), replay, shrink, sweep
   src/lib/                         pure, unit-tested, no React
     money.ts      formatCents()    BigInt, mirrors Rust Display ("-12.34"); UI adds the "$"
-    seed.ts                        validate u64 decimal string; random seed via crypto.getRandomValues
+    seed.ts                        validate a u32 integer; random seed is one crypto.getRandomValues(Uint32Array) value
     balances.ts   balancesAt(opening, journal, k)  display-only fold; the full fold must equal
                                    ledger.accounts or it throws (contract drift → error banner)
     faultPlan.ts                   describe / add / remove / update a FaultOp; shape checks only
@@ -110,9 +110,9 @@ Client selection: `VITE_SIM_CLIENT=fixtures|http` and `VITE_API_BASE_URL`. Produ
 8. **Go live** once sim-api ships asks #1–7: switch to `HttpClient`, replace the hand-written fixtures with the golden ones, deploy as a static site, and smoke-test against the real API (README V1's last item).
 
 ## Tests (Vitest, all deterministic: no live network, no wall clock, `fetch` stubbed)
-- **decode:** every fixture decodes. Rejected: missing field, unknown `EventKind`/`FaultOp` tag, unsafe integer (`2**53`), numeric seed, an `invariants` that isn't an array.
+- **decode:** every fixture decodes. Rejected: missing field, unknown `EventKind`/`FaultOp` tag, unsafe integer (`2**53`), a seed outside `0..=u32::MAX` or a string seed, an `invariants` that isn't an array.
 - **client:** timeout aborts and returns a timeout error. One retry on 503, then success. No retry on 400, and the error envelope reaches the UI. Malformed JSON gives a DecodeError. A superseded request is aborted, so only the latest response renders.
-- **lib:** `formatCents` matches the Rust `Display` cases in `money.rs` (0, 5, -5, 100, -1234, ±2^53−1). `balancesAt` at k=0 equals opening, and a fold that disagrees with the final ledger throws. The seed validator rejects negatives, non-digits and values above u64::MAX. Replay fragments round-trip.
+- **lib:** `formatCents` matches the Rust `Display` cases in `money.rs` (0, 5, -5, 100, -1234, ±2^53−1). `balancesAt` at k=0 equals opening, and a fold that disagrees with the final ledger throws. The seed validator rejects negatives, non-integers and values above `u32::MAX`. Replay fragments round-trip.
 - **components** (Testing Library, by behaviour): Run under naive shows `single_capture_per_intent` failed, and hardened shows all passed. Scrubbing and ←/→ change the balances. Adding a `Duplicate` op sends it in the next run request. Changing the seed resets the plan to `null`. ReplayBadge shows verified / mismatch / unverified. ShrinkView never says "minimal". SweepChart renders the fixture's rates.
 
 ## Verification
