@@ -3,7 +3,7 @@
 ## Context
 README §3 defines V1 as "a working, deployed, deterministic simulator proving the core loop end to end: inject a fault, watch it break the naive handler, share the exact failure as a link." This compares each V1 feature against `develop` at `43082a7`, with row 1 rechecked at `3fc6ff3` (PR #2).
 
-**Bottom line:** about 2 of the 11 V1 features are done: the money ledger with invariants, and the ACH state machine. The engine is partly built: the RNG, clock and run hash are merged (PR #2), but the event queue, the handler trait and `run()` are still open. **Nothing that makes up the core loop exists yet**: handlers, faults, scenarios, shrink, sweep, the API, the UI and the deploy. Five of those pieces don't have a spec either.
+**Bottom line:** about 2 of the 11 V1 features are done: the money ledger with invariants, and the ACH state machine. The engine is partly built: the RNG, clock and run hash are merged (PR #2), but the event queue, the handler trait and `run()` are still open. **Nothing that makes up the core loop exists yet**: handlers, faults, scenarios, shrink, sweep, the API, the UI and the deploy. Four of those pieces don't have a spec either.
 
 ## Feature status (README §3 V1)
 | # | V1 feature | Status | Spec |
@@ -12,7 +12,7 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 | 2 | `Money(i64)` ledger + balance invariants | ✅ Done (#1–#4 run; #5/#6 named, V4) | ✅ `ledger-plan.md` |
 | 3 | ACH state machine | ✅ Done (`rails/ach.rs`), but **no V1 scenario uses it** (see D2) | ✅ |
 | 4 | Naive vs hardened handler pair | ❌ `handlers/*.rs` are empty (the trait goes in `handlers/mod.rs`, defined in the A spec's E5) | ❌ |
-| 5 | Fault injector: duplicate, reorder, delay, drop, crash-restart | ❌ `FaultOp` is data only, there's no `apply_fault_plan()`, and no seed → plan generation | ❌ |
+| 5 | Fault injector: duplicate, reorder, delay, drop, crash-restart | ❌ `FaultOp` is data only, there's no `apply_fault_plan()`, and no seed → plan generation | ✅ `fault-injector-plan.md` |
 | 6 | Replay-by-seed links (basic URL encoding) | ❌ No `encode_run` / `decode_run` | ❌ |
 | 7 | Shrinker, single-pass greedy | ❌ `shrink.rs` is empty | ❌ |
 | 8 | Sweep harness (naive vs hardened failure rate) | ❌ | ❌ |
@@ -33,11 +33,10 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 - Scenario 1 (charge retried after timeout) and scenario 2 (refund before capture), as `Scenario { id, name, description, initial_ledger, workload }`. Openings must sum to zero (`Ledger::open`). Event times are simulated milliseconds (engine decision T), written with named constants such as `MS_PER_DAY`.
 - `sim-scenarios` needs a `sim-core` dependency and a `scenarios()` registry, which sim-api's `GET /scenarios` uses (frontend ask #2).
 
-**S2: fault injection** (`fault.rs`)
-- What each op does to the queue: `Duplicate` (when the copy arrives), `Reorder { window }` (an `Rng::shuffle` over the next *n* events), `Delay`, `Drop`, `CrashRestart { at }`.
-- **Crash-restart semantics.** Proposed: the ledger survives (it's the durable store) and the handler is rebuilt via `HandlerKind::build()`, so any in-memory deduplication is lost. The hardened handler therefore has to derive idempotency from `ledger.journal()`, which is the reason the trait passes it `&Ledger`.
-- **Seed → initial `FaultPlan`** (§6.2): which ops, which events, and the rates as named constants. After generation the plan is plain data (`RunResult.fault_plan`), so shrinking never consumes RNG.
-- **Applying a fault must not draw from a shared RNG stream.** If `Reorder` calls `Rng::shuffle` while the run executes, then removing an earlier fault during shrinking shifts the draws every later fault sees, which §6.2 rules out. Either `Reorder` records its permutation at generation time, or each fault gets its own stream.
+**S2: fault injection** (`fault.rs`) → now specced in `fault-injector-plan.md`, with decisions R, C and O awaiting approval.
+- Applying a plan is pure and draws no randomness, so shrinking never perturbs other faults. The seed only generates the initial plan.
+- `Reorder { event_id, window }` reverses a window of deliveries (R). A crash-restart rebuilds the handler from a factory while the ledger survives (C). Ops apply in fixed phases (O).
+- The hardened handler therefore has to derive idempotency from `ledger.journal()`, which is the reason the trait passes it `&Ledger`.
 
 **S3: shrink + sweep** (`shrink.rs`, `simulator.rs`)
 - Greedy single pass: try removing each `FaultOp` once, and keep the removal if the *same named* invariant still fails. Report `candidates_tried`. Never say "minimal" (§6.3).
