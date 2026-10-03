@@ -218,12 +218,21 @@ impl InvariantCheck for RefundWithinCapture {
                 EntryKind::Capture => &mut intent_totals.0,
                 EntryKind::Refund => &mut intent_totals.1,
             };
-            let Some(next) = entry.gross().and_then(|amount| running.checked_add(amount)) else {
+            let Some(gross) = entry.gross() else {
                 return InvariantResult::fail(
                     self.name(),
                     format!(
-                        "totals for intent {:?} overflow at entry #{index}",
-                        entry.intent.0
+                        "entry #{index} (event {}) overflows summing its own postings",
+                        entry.source.0
+                    ),
+                );
+            };
+            let Some(next) = running.checked_add(gross) else {
+                return InvariantResult::fail(
+                    self.name(),
+                    format!(
+                        "intent {:?}'s running total overflows adding entry #{index} (event {})",
+                        entry.intent.0, entry.source.0
                     ),
                 );
             };

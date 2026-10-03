@@ -1,27 +1,28 @@
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
+use crate::rails::ach::AchEvent;
+use crate::rails::card::CardEvent;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EventId(pub u64);
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+// Thin dispatcher over per-rail event vocabularies (crate::rails::{ach,card}).
+// Each rail owns its own fields and state machine; adding a rail (e.g. RTP)
+// is an additive variant here, not a merge into an unrelated field list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EventKind {
-    Charge,
-    Refund,
-    AchReturn,
-    Webhook,
+    Card(CardEvent),
+    Ach(AchEvent),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SimEvent {
     pub id: EventId,
     pub time: u64,
     pub seq: u64,
     pub kind: EventKind,
-    pub payload: serde_json::Value,
 }
-
-impl Eq for SimEvent {}
 
 impl Ord for SimEvent {
     fn cmp(&self, other: &Self) -> Ordering {

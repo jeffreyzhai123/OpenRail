@@ -20,6 +20,12 @@ use crate::money::Money;
 #[serde(transparent)]
 pub struct IntentId(pub String);
 
+// Rail-agnostic by design: an ACH debit/return posts as Capture/Refund too
+// (README's rail event types stay rail-specific; this is the abstracted
+// accounting operation a handler derives from one). A card chargeback/
+// dispute will need its own variant later — it's forced and can bypass
+// normal refund-timing rules — but that's deferred until disputes are
+// in scope; don't add it speculatively.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EntryKind {
     Capture,

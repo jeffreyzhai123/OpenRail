@@ -2,6 +2,11 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::money::Money;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct AchEntryId(pub u64);
+
 /// The README's linear ACH lifecycle. Pure: no clock, no ledger. Handlers
 /// decide what money moves on each transition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -52,6 +57,46 @@ impl fmt::Display for AchError {
 }
 
 impl std::error::Error for AchError {}
+
+/// NACHA return reason code on a Returned transition. Minimal set — revisit
+/// against NACHA documentation in V2 (README §3).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AchReturnCode {
+    /// R01: insufficient funds.
+    R01,
+    /// R02: account closed.
+    R02,
+    /// R03: no account / unable to locate account.
+    R03,
+    /// R04: invalid account number.
+    R04,
+    Other(String),
+}
+
+impl fmt::Display for AchReturnCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AchReturnCode::R01 => write!(f, "R01"),
+            AchReturnCode::R02 => write!(f, "R02"),
+            AchReturnCode::R03 => write!(f, "R03"),
+            AchReturnCode::R04 => write!(f, "R04"),
+            AchReturnCode::Other(code) => write!(f, "{code}"),
+        }
+    }
+}
+
+/// ACH rail event vocabulary. V1 only has the terminal return event — the
+/// initiated/batched/settled transitions are driven by the scenario
+/// workload's timing rather than by their own `SimEvent`s; add variants here
+/// if that changes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AchEvent {
+    Returned {
+        entry_id: AchEntryId,
+        code: AchReturnCode,
+        amount: Money,
+    },
+}
 
 #[cfg(test)]
 mod tests {

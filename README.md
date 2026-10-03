@@ -98,6 +98,19 @@ Where the project becomes a genuine distributed-systems showcase on top of the c
 
 **V3 definition of done:** the 10,000-seed determinism check still passes with the worker pool enabled (proof that "real concurrency, still reproducible" holds); at minimum the queue, worker pool, retry/circuit-breaker/DLQ, and backpressure items are shipped; sharding+saga is shipped or explicitly documented as a near-term follow-up; CI/CD is live.
 
+### V4 — Provider event feed, reconciliation, and idempotency-key semantics
+
+V3 hardens *how the simulator executes* (concurrency, distribution). V4 hardens *what the simulator is honest about not yet modeling*: invariants #5 and #6 (README §6.4) are currently named but unimplemented, because nothing in the system represents "the provider's view of truth" separately from the ledger. This tier builds that missing side of the boundary.
+
+**Features:**
+- **`ProviderEvent` feed** — a second, append-only event stream representing what the (simulated) provider believes happened, independent of what the handler wrote to the ledger. Lives in `sim-core`, generated alongside `SimEvent`s from the same seed, so it stays reproducible; fault ops can act on it too (e.g. a `Drop` can make a `SimEvent` arrive at the handler while the matching `ProviderEvent` still lands in the feed, which is exactly the shape of invariant #6).
+- **Invariant #5 (`RECONCILES_WITH_PROVIDER`)**: after a run, replay the provider feed into its own view of expected balances and diff against `Ledger.balances()`. Needs a reconciliation key (reuse `IntentId`) to match a ledger entry to its provider event.
+- **Invariant #6 (`ENTRY_HAS_PROVIDER_EVENT`)**: every `JournalEntry` must trace back to a `ProviderEvent` that actually occurred in the feed — catches a handler that posts a capture the provider never confirmed (e.g. acted on a dropped/delayed event as if it had arrived).
+- **Idempotency-key-aware request handling (`sim-api`)** — distinct from the existing `Duplicate` fault op. `Duplicate` simulates the *provider* redelivering the same webhook; an idempotency key simulates the *client* retrying the same logical request (e.g. "create charge") after a timeout, expecting the same response rather than a second charge. This requires `sim-api` to hold a short-lived cache of `(idempotency_key → response)`, which is new state the server doesn't have today (§2: "stateless per request"). Resolve honestly rather than quietly dropping the stateless guarantee: either (a) treat the cache as per-request-bundle state scoped to one `/run` call (the client sends the whole request sequence, including repeated keys, up front — still stateless across separate HTTP calls), or (b) explicitly carve out a narrow, documented exception and update §2's API design note. Don't let this slide in unstated.
+- A new scenario exercising client-side idempotent retry (handler receives the same `charge_id` + idempotency key twice, in-order, due to a client timeout — not a provider duplicate) to distinguish this failure mode from the existing duplicate-webhook scenarios in tests and in the gallery.
+
+**V4 definition of done:** invariants #5 and #6 run for real (no stub) and have dedicated property tests analogous to §6.4's existing four; at least one scenario demonstrates each of (a) a reconciliation break and (b) an idempotency-key collision handled correctly by the hardened handler and incorrectly by the naive one; §2's statelessness claim is either preserved under the chosen design or explicitly amended.
+
 ---
 
 ## 4. Tech stack rationale note
@@ -135,11 +148,29 @@ Real concurrency still has a place — strictly as an addition on top of the det
 
 ```rust
 // sim-core/src/event.rs
-struct SimEvent { id: EventId, time: u64, seq: u64, kind: EventKind, payload: serde_json::Value }
-// EventQueue ordered strictly on (time, seq) — never on payload contents
+struct EventId(u64);
+struct ChargeId(u64);
+struct AchEntryId(u64);
+
+// Pure business-event taxonomy — what happened. Delivery (e.g. webhook vs.
+// polling) is orthogonal; every SimEvent is a webhook delivery today, so
+// there is no Webhook variant. A second transport becomes a `delivery:
+// DeliveryKind` field on SimEvent later, not another EventKind variant.
+enum EventKind {
+    ChargeAuthorized { charge_id: ChargeId, amount: Money },
+    ChargeCaptured { charge_id: ChargeId, amount: Money },
+    Refund { charge_id: ChargeId, amount: Money },
+    AchReturn { entry_id: AchEntryId, code: AchReturnCode, amount: Money },
+}
+
+struct SimEvent { id: EventId, time: u64, seq: u64, kind: EventKind }
+// EventQueue ordered strictly on (time, seq) — never on event contents
 
 // sim-core/src/money.rs
-struct Money(i64); // cents. Checked Add/Sub. No From<f64>, ever.
+struct Money(i64); // cents. Checked add/sub. No From<f64>, ever.
+
+// sim-core/src/ach.rs
+enum AchReturnCode { R01, R02, R03, R04, Other(String) } // revisit against NACHA docs in V2
 
 // sim-core/src/fault.rs
 #[derive(Serialize, Deserialize)]
@@ -157,7 +188,11 @@ struct Scenario { id: &'static str, name: &'static str, description: &'static st
 
 // sim-core/src/simulator.rs — the main entrypoint everything else calls
 struct RunResult { trace: Vec<SimEvent>, ledger: LedgerSnapshot, invariants: Vec<InvariantResult>, trace_hash: String }
-fn run(scenario: &Scenario, seed: u64, fault_plan: Option<&FaultPlan>) -> RunResult;
+// Takes initial_ledger/workload directly rather than &Scenario: Scenario is
+// defined in sim-scenarios, which depends on sim-core (§2) — not the other
+// way around, so sim-core can't name sim-scenarios's types. Callers in
+// sim-scenarios/sim-api destructure a Scenario before calling run().
+fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u64, fault_plan: Option<&FaultPlan>) -> RunResult;
 ```
 
 `InvariantResult` needs a name/identity, not just pass/fail — the shrinker's stopping condition is "the *same named* invariant still fails," not just "something failed."
