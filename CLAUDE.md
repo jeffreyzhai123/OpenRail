@@ -52,4 +52,6 @@ cargo build
 cargo test
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
+
+npm --prefix frontend run check   # typecheck, eslint, prettier --check, vitest
 ```
