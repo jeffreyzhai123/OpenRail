@@ -1,7 +1,6 @@
 pub mod clock;
 pub mod event;
 pub mod fault;
-pub mod handler;
 pub mod handlers;
 pub mod invariants;
 pub mod ledger;

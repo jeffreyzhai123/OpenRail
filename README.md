@@ -239,8 +239,10 @@ sim-core/src/
   ledger.rs       Ledger { accounts: BTreeMap<String, Money> }, post() rejects unbalanced entries
                   (BTreeMap, not HashMap — iteration order must be deterministic for the trace hash)
   invariants.rs   InvariantCheck trait; the 6 invariants in §6.4
-  ach.rs          AchState enum + transition()
-  handler.rs      EventHandler trait
+  rails/ach.rs    AchState enum + transition(), AchEvent
+  rails/card.rs   CardEvent (CardState deferred past V1)
+  rails/rtp.rs    stub, deferred past V3
+  handlers/mod.rs EventHandler trait
   handlers/naive.rs, handlers/hardened.rs
   fault.rs        FaultOp, FaultPlan, apply_fault_plan()
   trace.rs        hash_trace() — canonical JSON then stable hash
