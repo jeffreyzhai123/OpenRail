@@ -1,0 +1,167 @@
+{
+  "fault_plan": [
+    {
+      "Duplicate": {
+        "event_id": 4
+      }
+    }
+  ],
+  "handler": "naive",
+  "invariants": [
+    {
+      "message": null,
+      "name": "ledger_balanced",
+      "passed": true
+    },
+    {
+      "message": null,
+      "name": "money_conserved",
+      "passed": true
+    },
+    {
+      "message": null,
+      "name": "single_capture_per_intent",
+      "passed": true
+    },
+    {
+      "message": "intent \"ach-1\" refunded 400.00 with only 200.00 captured, at entry #2 (event 4)",
+      "name": "refund_within_capture",
+      "passed": false
+    },
+    {
+      "message": "event 4 posted twice: entry #1 and entry #2",
+      "name": "single_entry_per_source_event",
+      "passed": false
+    }
+  ],
+  "journal": [
+    {
+      "intent": "ach-1",
+      "kind": "Capture",
+      "postings": [
+        {
+          "account": "external:bank",
+          "delta": -20000
+        },
+        {
+          "account": "merchant",
+          "delta": 20000
+        }
+      ],
+      "source": 1
+    },
+    {
+      "intent": "ach-1",
+      "kind": "Refund",
+      "postings": [
+        {
+          "account": "merchant",
+          "delta": -20000
+        },
+        {
+          "account": "external:bank",
+          "delta": 20000
+        }
+      ],
+      "source": 4
+    },
+    {
+      "intent": "ach-1",
+      "kind": "Refund",
+      "postings": [
+        {
+          "account": "merchant",
+          "delta": -20000
+        },
+        {
+          "account": "external:bank",
+          "delta": 20000
+        }
+      ],
+      "source": 4
+    }
+  ],
+  "ledger": {
+    "accounts": {
+      "external:bank": 20000,
+      "external:card": 0,
+      "merchant": -20000
+    }
+  },
+  "opening": {
+    "external:bank": 0,
+    "external:card": 0,
+    "merchant": 0
+  },
+  "replay": "1.eyJzY2VuYXJpb19pZCI6ImxhdGUtYWNoLXJldHVybiIsInNlZWQiOjAsImhhbmRsZXIiOiJuYWl2ZSIsImZhdWx0X3BsYW4iOlt7IkR1cGxpY2F0ZSI6eyJldmVudF9pZCI6NH19XX0",
+  "scenario_id": "late-ach-return",
+  "seed": 0,
+  "trace": [
+    {
+      "id": 1,
+      "kind": {
+        "Ach": {
+          "Initiated": {
+            "amount": 20000,
+            "entry_id": 1
+          }
+        }
+      },
+      "seq": 0,
+      "time": 0
+    },
+    {
+      "id": 2,
+      "kind": {
+        "Ach": {
+          "Batched": {
+            "entry_id": 1
+          }
+        }
+      },
+      "seq": 1,
+      "time": 14400000
+    },
+    {
+      "id": 3,
+      "kind": {
+        "Ach": {
+          "Settled": {
+            "entry_id": 1
+          }
+        }
+      },
+      "seq": 2,
+      "time": 86400000
+    },
+    {
+      "id": 4,
+      "kind": {
+        "Ach": {
+          "Returned": {
+            "amount": 20000,
+            "code": "R01",
+            "entry_id": 1
+          }
+        }
+      },
+      "seq": 3,
+      "time": 259200000
+    },
+    {
+      "id": 4,
+      "kind": {
+        "Ach": {
+          "Returned": {
+            "amount": 20000,
+            "code": "R01",
+            "entry_id": 1
+          }
+        }
+      },
+      "seq": 4,
+      "time": 259230000
+    }
+  ],
+  "trace_hash": "93b56850873e76a944704afebb30bb5d1a788f4b14658113aa7e54be05a1829d"
+}

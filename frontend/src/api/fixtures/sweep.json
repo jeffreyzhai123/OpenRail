@@ -1,0 +1,9 @@
+{
+  "count": 100,
+  "hardened": {
+    "failed": 0
+  },
+  "naive": {
+    "failed": 61
+  }
+}
