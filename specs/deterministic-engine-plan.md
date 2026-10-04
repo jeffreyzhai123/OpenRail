@@ -11,7 +11,7 @@ What A starts from:
 
 The work is split into pieces E0–E7 below. Each piece is one commit on a feature branch, merged into `develop` by PR. It names what it depends on, and is done when its own tests pass and `cargo fmt`, `cargo clippy --all-targets -- -D warnings` and `cargo test` are green.
 
-**Status (2026-10-03):** E0, E1, E2 and E4 are merged (PR #2, squash commit `3fc6ff3`). E3 and E5 are next. E6 also waits on approval of deviation 7, and E7 comes last.
+**Status (2026-10-03):** E0, E1, E2 and E4 are merged (PR #2, squash commit `3fc6ff3`). E3 and E5 are next. E6 also needs F1 (`fault-injector-plan.md`, on branch `fault-injector`) and approval of deviation 7. README §6.1/§6.5 and TODO.md were synced early, because CLAUDE.md makes the README the design source of truth. E7 covers what's left.
 
 ## The principle behind most decisions below
 **Every ordering is explicit, and nothing reads ambient state.** The queue orders by `(time, seq)`, ties fall back to workload slice order, JSON uses field declaration order, and the ledger uses `BTreeMap`. Nothing reads a wall clock, a randomized hasher or the environment. Second rule: **low-level code reports, `run()` decides.** The clock, queue, trace and ledger return errors, and `run()` is the one boundary that turns them into a `SimError`.
@@ -20,7 +20,7 @@ The work is split into pieces E0–E7 below. Each piece is one commit on a featu
 1. **`run()` takes a handler factory, `new_handler: &dyn Fn() -> Box<dyn EventHandler>`.** README §6.1 has no handler parameter. Approved by the user. "Posts to the ledger" needs something that maps events to entries, and naive vs hardened is V1's whole demo. It also matches `frontend-plan.md` ask #1. It's a factory rather than a borrowed handler so that a crash-restart can build a fresh one (`fault-injector-plan.md` decision C, approved).
 2. **`run()` returns `Result<RunResult, SimError>`.** README §6.1 returns a bare `RunResult`. An unbalanced opening or a structurally invalid handler entry has to surface as an error at the boundary (sim-api maps it to 4xx/5xx), not as a panic.
 3. **`hash_run(trace, journal) -> Result<String, serde_json::Error>` replaces `hash_trace(&[SimEvent]) -> String`.** Approved by the user (decision H). It hashes the journal as well as the events. It returns a `Result` because serde_json's API is fallible. It can't fail for today's types, but returning the error keeps the no-`unwrap` rule without a "provably impossible" argument that a future `EventKind` could quietly break.
-4. **A non-empty `fault_plan` returns `Err(FaultsNotSupported)` until fault injection lands.** Ignoring it silently would make a fault-injected replay link look like it ran, which is a fake result.
+4. **E6 applies explicit fault plans through `apply_fault_plan` (`fault-injector-plan.md` F1), crash-restarts included. `None` means no faults until F3 adds generation.** README §6.1 doesn't say how faults run. F1 already exists, so this avoids adding a `FaultsNotSupported` error that F3 would only delete.
 5. **`seed` is accepted but not used yet.** Until faults exist, nothing random happens in a run. The determinism test still proves the pipeline has no hidden nondeterminism, such as hasher order or ambient state. It doesn't prove that seeded faults replay; it covers that once faults land.
 6. **The `seq` in workload events is ignored.** The queue assigns `seq` at push, so a scenario's slice order is its tie-break. `Scenario.workload` stays `Vec<SimEvent>` for now.
 7. **`RunResult` gains `opening` and `journal`.** *Needs approval.* README §6.1 lists only `trace`, `ledger`, `invariants` and `trace_hash`. `run()` consumes the `Ledger`, so nothing after it can recover them, and the timeline scrubber needs both (`frontend-plan.md` ask #4, `v1-mvp-plan.md` gap 1).
@@ -49,7 +49,7 @@ mulberry32 has a 32-bit state, so there are only 2^32 distinct streams, whatever
 **Chosen: B** (deviation 8), while no code read the seed. The fold and the string seed both existed only to carry 32 bits of entropy in a 64-bit type.
 
 ### T: tick unit
-`VirtualClock`'s code is the same under every option. What changes is how scenarios (S1) set times and how fault generation (S2) picks delays.
+`VirtualClock`'s code is the same under every option. What changes is how scenarios (S1a) set times and how fault generation (S2) picks delays.
 
 **A. Unitless ticks (as written)**
 - ✅ Nothing to decide or document.
@@ -101,11 +101,11 @@ TODO.md hashes only the popped events.
 | E2 | Virtual clock (`clock.rs`) | E0 | ✅ PR #2 |
 | E3 | Event queue (`event.rs`) | E0 | Open |
 | E4 | Trace hash (`trace.rs`) | E0 | ✅ PR #2 |
-| E5 | `EventHandler` trait (`handlers/mod.rs`) | E0 | Open |
-| E6 | `run()` and the determinism tests (`simulator.rs`) | E2, E3, E4, E5 | Open, needs deviation 7 approved |
-| E7 | Docs sync | E6 | Open |
+| E5 | `EventHandler` trait and `HandlerKind` names (`handlers/mod.rs`) | E0 | Open |
+| E6 | `run()` and the determinism tests (`simulator.rs`) | E2, E3, E4, E5, F1 | Open, needs deviation 7 approved |
+| E7 | Docs sync (what the early sync left) | E6 | Open |
 
-E3 and E5 don't depend on each other. **Land E5 early:** it's tiny, and it unblocks the handlers track (`v1-mvp-plan.md` S1). E1 isn't on `run()`'s path yet (deviation 5). Its first consumer is fault generation (S2).
+E3 and E5 don't depend on each other. **Land E5 early:** it's tiny, and it unblocks the handlers track (`v1-mvp-plan.md` S1b) and lets sim-api name handlers. E1 isn't on `run()`'s path yet (deviation 5). Its first consumer is fault generation (S2).
 
 ---
 
@@ -205,6 +205,11 @@ pub trait EventHandler {
     /// Journal entries this event produces. The simulator posts them.
     fn handle(&mut self, event: &SimEvent, ledger: &Ledger) -> Vec<JournalEntry>;
 }
+
+/// Which handler a run uses, as the API and replay links name it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HandlerKind { Naive, Hardened }   // `build()` arrives with the handlers (S1b)
 ```
 | Decision | Why |
 |---|---|
@@ -212,15 +217,16 @@ pub trait EventHandler {
 | `&mut self` | The hardened handler needs memory (seen event ids, per-entry `AchState`). That's domain state, which CLAUDE.md allows. |
 | Read-only `&Ledger` | A handler may look at balances or the journal, e.g. hardened checking for a prior capture, and after a crash-restart (S2) the journal is the only memory left. |
 | No `Result` | A bad ordering is the handler's to handle or mishandle, and the invariants judge the result (Partner B's principle). Structurally invalid entries are caught by `post()`. |
-| `naive.rs` and `hardened.rs` stay empty | Not today (TODO "Explicitly NOT today"). They're `v1-mvp-plan.md` S1. |
+| `HandlerKind` lands here with names only | sim-api, the replay encoding and the sweep can name a handler before any handler exists. `build() -> Box<dyn EventHandler>` comes with the handlers, and callers then pass `&\|\| kind.build()`. |
+| `naive.rs` and `hardened.rs` stay empty | Not today (TODO "Explicitly NOT today"). They're `v1-mvp-plan.md` S1b. |
 
-**Tests:** none of its own. It's a trait with no logic, and E6's test handler exercises it.
+**Tests:** the trait has none of its own, since E6's test handler exercises it. `HandlerKind` serializes as `"naive"` and `"hardened"`, matching the frontend's `Handler` type, and an unknown name fails to deserialize.
 
 ## E6: `run()` and the determinism tests (`simulator.rs`)
 ```rust
 pub enum SimError {
     InvalidOpening(LedgerError),
-    FaultsNotSupported,
+    InvalidFaultPlan(FaultError),
     Clock(ClockError),
     Posting { event: EventId, error: LedgerError },
     TraceEncoding(serde_json::Error),
@@ -238,10 +244,10 @@ pub fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u32,
            fault_plan: Option<&FaultPlan>, new_handler: &dyn Fn() -> Box<dyn EventHandler>) -> Result<RunResult, SimError>;
 ```
 Flow:
-1. Reject a non-empty `fault_plan`. (`None` and `Some(&vec![])` are both fine.)
-2. `Ledger::open` → `InvalidOpening`.
-3. Push the workload in slice order. Each `kind` is cloned, because the queue owns its events and the workload is borrowed.
-4. Build the handler with `new_handler()`, then drain the queue: `advance_to`, then `handler.handle`, then `post` each entry (→ `Posting { event }`), then append to the trace.
+1. `Ledger::open` → `InvalidOpening`.
+2. `apply_fault_plan(workload, plan)` → `InvalidFaultPlan`. The plan is `fault_plan`, or empty for `None` until F3 generates one.
+3. Push the schedule's deliveries in order. The queue assigns `seq`.
+4. Build the handler with `new_handler()`, then drain the queue. Before each event, rebuild the handler for every pending crash at or before its time. Then `advance_to`, `handler.handle`, `post` each entry (→ `Posting { event }`), and append to the trace.
 5. `check_all`, then `hash_run(&trace, ledger.journal())`, then build `RunResult` from `snapshot()`, `opening().clone()` and `journal().to_vec()`.
 
 | Decision | Why |
@@ -250,7 +256,8 @@ Flow:
 | `seed` is bound as `let _ = seed;` with a one-line "why" comment, and no unused `Rng` is built | Being honest about deviation 5. It will seed `Rng` for fault-plan generation (§6.2). |
 | `opening` and `journal` are cloned out of the `Ledger` | `Ledger` only lends them, and adding an `into_parts()` would touch B's file. That's one copy per run. |
 | `RunResult` derives `PartialEq` and `Serialize`, not `Deserialize` | Tests compare whole results across runs, and sim-api serializes the result. Nothing reads one back yet (YAGNI). |
-| `SimError::Clock` can't fire in V1 | Every event is pushed before the drain, so pops never go back in time. The variant guards S2, where faults push during the drain. E2's tests cover the error itself. |
+| `SimError::Clock` can't fire in V1 | Faults are applied before the drain and every delivery is pushed up front, so pops never go back in time. The variant guards V3, where workers push during the drain. E2's tests cover the error itself. |
+| Crash-restarts are checked against each popped event's time | No `peek` is needed (E3), and a crash after the last delivery has no effect, which is correct: nothing is left to handle. |
 | `SimError` hand-writes `Display` and `Error` | Same pattern as `LedgerError`. |
 
 **Tests** use a test-only `CardHandler`: Captured → a `Capture` transfer `external:card`→`merchant` with intent `charge-{id}`, Refunded → `Refund`, everything else → no entries. The fixed workload has two same-time events and is out of time order in the slice. Clean-run tests pass `Some(&FaultPlan::new())`, not `None`: once faults land (`fault-injector-plan.md` F3), `None` means "generate a plan from the seed". Proptests use `crate::test_support::proptest_config()`.
@@ -259,14 +266,22 @@ Flow:
 - The trace is in `(time, seq)` order, and same-time events keep their workload order.
 - The clean workload ends with the expected balances, and all 4 invariants pass. `opening` equals the input, and `journal` holds one entry per posted entry, in posting order.
 - **Seam check:** a duplicated capture (new `EventId`, same `charge_id`) makes `single_capture_per_intent` fail while the others pass, end to end through `run()`.
-- Failure paths: an unbalanced opening gives `InvalidOpening`. A non-empty plan gives `FaultsNotSupported`. A handler that emits an unbalanced entry gives `Posting` with that event's id. An empty workload gives `Ok`, with an empty trace and the hash of empty input.
+- **Each fault breaks the naive `CardHandler` visibly:**
+  - Duplicating the capture fails `single_capture_per_intent`.
+  - Delaying the capture past the refund fails `refund_within_capture`.
+  - A window-2 `Reorder` of capture and refund fails `refund_within_capture`.
+  - Dropping the capture fails `refund_within_capture`.
+- **Crash-restart:** combine `Duplicate(capture)` with a `CrashRestart` between the original and its copy.
+  - A handler that remembers seen ids in memory passes without the crash and fails `single_capture_per_intent` with it.
+  - A handler that checks `ledger.journal()` for the event's `source` passes both.
+- Failure paths: an unbalanced opening gives `InvalidOpening`. A plan naming an unknown event gives `InvalidFaultPlan`, and nothing is posted. A handler that emits an unbalanced entry gives `Posting` with that event's id. An empty workload gives `Ok`, with an empty trace and the hash of empty input.
 
 **Done when:** TODO.md's "Done for today when" holds. The gates are green, `run()` produces a stable `trace_hash` (both the golden and the ×100 tests), and none of the forbidden items are in `sim-core`.
 
 ## E7: Docs sync
-- TODO.md: tick Step 0 and A's boxes.
-- README §6.1: the `run()` signature (handler, `Result`, `seed: u32`), `RunResult`'s new fields, the composite `EventKind`, and the `sim-core/src/ach.rs` comment (now `rails/ach.rs`). Note that a tick is a millisecond.
-- README §6.5 (`8f711df` already fixed the `rails/` and `handlers/mod.rs` paths): `simulator.rs` lists `Simulation::run()`, but it lands as a free `run()`, and `trace.rs` lists `hash_trace()`, now `hash_run()`.
+README §6.1/§6.5 (the `run()` signature, the composite `EventKind`, `rails/` paths, ms ticks, `hash_run`) and TODO.md's Step 0, `rng`, `clock` and `trace` boxes were synced early, on 2026-10-03. What's left:
+- TODO.md: tick the queue, `run()` and determinism boxes.
+- README §6.1: `RunResult`'s new fields once deviation 7 is approved, and `HandlerKind`.
 - `v1-mvp-plan.md`: flip feature 1's status to done, and mark gap 1 resolved.
 
 ---

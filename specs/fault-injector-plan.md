@@ -3,7 +3,7 @@
 ## Context
 README §3 V1 needs a fault injector covering duplicate, reorder, delay, drop and crash-restart. §6.2 says the seed generates an initial `FaultPlan`, which is then stored as data so the shrinker can remove single faults "without perturbing unrelated randomness".
 
-Today `fault.rs` is data only: `FaultOp` and `FaultPlan = Vec<FaultOp>`, with serde. The engine has the RNG, clock and `hash_run` (PR #2). The event queue (E3), the handler trait (E5) and `run()` (E6) are still open, and `run()` currently rejects any non-empty plan (engine deviation 4). This plan is S2 from `v1-mvp-plan.md`.
+Today `fault.rs` is data only: `FaultOp` and `FaultPlan = Vec<FaultOp>`, with serde. The engine has the RNG, clock and `hash_run` (PR #2). The event queue (E3), the handler trait (E5) and `run()` (E6) are still open. When E6 lands, it applies explicit plans through F1 (engine deviation 4). This plan is S2 from `v1-mvp-plan.md`.
 
 ## The principle behind most decisions below
 **The plan is data, and applying it is a pure function with no randomness.** The seed is used once, to generate a plan. After that, `apply_fault_plan(workload, plan)` turns the workload into a delivery schedule without drawing from the RNG. That is what lets the shrinker remove one fault without changing what the others do.
@@ -39,7 +39,7 @@ Engine deviation 1 left this to S2: a borrowed `&mut dyn EventHandler` can't be 
 
 **A. `run()` takes a factory, `new_handler: &dyn Fn() -> Box<dyn EventHandler>`**
 - ✅ A crash really loses all in-memory state: the replacement is a fresh instance, so nothing survives by mistake.
-- ✅ Tests pass closures that build test handlers, and sim-api passes `&|| kind.build()` (S1's `HandlerKind`).
+- ✅ Tests pass closures that build test handlers, and sim-api passes `&|| kind.build()` (`HandlerKind`: names in engine E5, `build()` in S1b).
 - ❌ Changes E6's signature. It was approved before E6 landed, so the engine plan now builds E6 with the factory.
 
 **B. Add `fn restart(&mut self)` to `EventHandler`**
@@ -64,7 +64,7 @@ Engine deviation 1 left this to S2: a borrowed `&mut dyn EventHandler` can't be 
 
 ## Other deviations from README / TODO.md (CLAUDE.md requires flagging these)
 1. **`RunResult` gains `fault_plan`, the effective plan.** README §6.1 doesn't list it. When the caller passes `None`, the generated plan has to come back, so the UI can show, edit, share and shrink it (`frontend-plan.md` ask #3). *Needs approval*, alongside engine deviation 7.
-2. **`SimError::FaultsNotSupported` becomes `InvalidFaultPlan(FaultError)`.** This resolves engine deviation 4.
+2. **`SimError` gets `InvalidFaultPlan(FaultError)`.** E6 adds it directly, because it applies explicit plans through F1 (engine deviation 4). No `FaultsNotSupported` error is ever added.
 3. **`seed` is used.** This resolves engine deviation 5.
 4. **`Rng::below(NonZeroU32)` becomes public.** Generation draws from ranges that are non-empty by construction, so the `Option` from `next_range` would only add an `unwrap`.
 
@@ -91,12 +91,12 @@ Branch `fault-injector`, one commit per piece. Each is done when its tests pass 
 |---|---|---|
 | F1 | `apply_fault_plan`, and `Reorder` gains `event_id` (`fault.rs`) | Decisions R and O |
 | F2 | `generate_fault_plan` (`fault.rs`), and `Rng::below` becomes public | F1 |
-| F3 | Wire faults into `run()` (`simulator.rs`) | F2, engine E6, decision C |
+| F3 | Generate a plan in `run()` and return the effective plan (`simulator.rs`) | F2, engine E6 |
 | F4 | Docs sync | F3 |
 
 F1 and F2 are pure and only need types that already exist, so they can land before E3, E5 and E6.
 
-**Status (2026-10-03):** decisions R, C and O are approved. F1 and F2 are in progress on `fault-injector`. F3 waits on engine E6, and on approval of deviation 1 (`RunResult.fault_plan`).
+**Status (2026-10-03):** decisions R, C and O are approved. F1 is done on `fault-injector` (`4ac0f87`, not merged yet), and F2 is next. Engine E6 builds on F1, applying explicit plans and crash-restarts, so F3 only adds generation and the effective plan. F3 waits on E6 and on approval of deviation 1 (`RunResult.fault_plan`).
 
 ---
 
@@ -158,7 +158,7 @@ A compile-time `assert!` checks that the per-event percentages sum to 100 or les
 |---|---|
 | At most one op per event, from one roll | Plans stay short and free of contradictions, such as duplicating and dropping the same event, and the draw order is easy to state. |
 | A crash lands on an event's time | It then falls just before a delivery, where it can matter. |
-| The rates are first guesses | With 4 events, about 2.5 faults per run, and about 2% of seeds get no fault. Tune them with the sweep once S1's scenarios exist: naive should fail often and hardened never. Tuning never breaks existing links (see the principle). |
+| The rates are first guesses | With 4 events, about 2.5 faults per run, and about 2% of seeds get no fault. Tune them with the sweep once the S1a scenarios and S1b handlers exist: naive should fail often and hardened never. Tuning never breaks existing links (see the principle). |
 
 **Tests:**
 - The same seed gives the same plan. Seeds 0..100 don't all give the same plan.
@@ -170,42 +170,24 @@ A compile-time `assert!` checks that the per-event percentages sum to 100 or les
 - An empty workload gives an empty plan.
 - Over seeds 0..1,000 on a 4-event workload, every op kind appears at least once. This catches a broken threshold.
 
-## F3: wire faults into `run()`
-```rust
-pub fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u32,
-           fault_plan: Option<&FaultPlan>,                          // None: generate from `seed`
-           new_handler: &dyn Fn() -> Box<dyn EventHandler>,         // decision C, already in E6
-) -> Result<RunResult, SimError>;
-// RunResult gains `pub fault_plan: FaultPlan`, the effective plan (deviation 1)
-```
-E6 takes the factory from the start (decision C), so F3 doesn't change the signature.
-Flow:
-1. `Ledger::open` → `InvalidOpening`.
-2. The plan is a clone of `fault_plan`, or `generate_fault_plan(seed, workload)` when it's `None`.
-3. `apply_fault_plan` → `InvalidFaultPlan`.
-4. Push the deliveries in order, then build the first handler.
-5. Drain the queue. Before handling an event, replace the handler for each pending crash at or before its time. Then `advance_to`, `handle`, `post`, and append to the trace, as in E6.
-6. `check_all`, `hash_run`, and build `RunResult` with the effective plan.
+## F3: generate a plan in `run()`
+E6 already applies explicit plans through `apply_fault_plan`, crash-restarts included, using the handler factory (engine deviation 4, decision C). F3 adds the rest:
+1. `None` now means `generate_fault_plan(seed, workload)` instead of an empty plan. The seed is finally used, which resolves engine deviation 5.
+2. `RunResult` gains `pub fault_plan: FaultPlan`, the effective plan (deviation 1).
 
-**Tests**, using test-only handlers, so they don't depend on S1:
+`run()`'s signature doesn't change. The per-fault and crash-restart tests live in E6, which applies explicit plans.
+
+**Tests:**
 - **Replay property:** `run(seed, None)` and `run(seed, Some(&result.fault_plan))` give identical `RunResult`s. With an explicit plan, a different seed gives the same result too: the plan, not the seed, determines the run.
 - **Determinism smoke:** 100 runs with seed 42 and `None` now exercise generated faults.
-- **Each fault breaks the naive `CardHandler` in a visible way:**
-  - Duplicating the capture fails `single_capture_per_intent`.
-  - Delaying the capture past the refund fails `refund_within_capture`.
-  - A window-2 `Reorder` of capture and refund fails `refund_within_capture`.
-  - Dropping the capture fails `refund_within_capture`.
-- **Crash-restart:** combine `Duplicate(capture)` with a `CrashRestart` between the original and its copy.
-  - A handler that remembers seen ids in memory passes without the crash and fails `single_capture_per_intent` with it.
-  - A handler that checks `ledger.journal()` for the event's `source` passes both.
-- An invalid plan (an unknown id) gives `InvalidFaultPlan`, and nothing is posted.
+- `result.fault_plan` equals `generate_fault_plan(seed, workload)` for `None`, and equals the input for `Some`.
 
 ## F4: docs sync
-- README §6.1: `Reorder { event_id, window }`, the factory in `run()`, and `RunResult.fault_plan`. README §6.5: `fault.rs` also has `generate_fault_plan()`.
-- `frontend-plan.md`: already done when R was approved. `Reorder` gained `event_id`.
+README §6.1 (`Reorder { event_id, window }`, the factory in `run()`) and §6.5 (`generate_fault_plan`), and the frontend's `FaultOp` type, were synced when the decisions were approved. What's left:
+- README §6.1: `RunResult.fault_plan`, once deviation 1 is approved.
 - `v1-mvp-plan.md`: feature 5 is done.
 
-## What this means for S1's handlers
+## What this means for the handlers (`v1-mvp-plan.md` S1b)
 - **Hardened idempotency has to be durable.** It should check `ledger.journal()` for an entry whose `source` is this event (a redelivery), or for a capture on the same intent. An in-memory set fails after a `CrashRestart`, and showing that is the point of the fault.
 - **D4 (a refund that arrives before its capture):** buffering it in memory loses it on a crash, and rejecting it loses it too. No V1 invariant notices a lost refund; that's #5 (reconciliation, V4). Choose D4 knowing that.
 - **A `Drop` is only visible in V1 through #4**, when a refund's capture was dropped. A dropped refund breaks nothing V1 checks. Lost webhooks in general are what #5 and #6 cover in V4.
