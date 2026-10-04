@@ -3,14 +3,14 @@
 ## Context
 README §3 V1 needs 3 playable scenarios: 2 card and 1 ACH (`decisions-log.md` D2). `sim-scenarios` is still the cargo `add()` template, with no dependencies. This is S1a in `v1-mvp-plan.md`, and Person B's track in `v1-backend-task-split.md`.
 
-**Does it need `run()`? No, except for one piece.** A scenario is data: an opening ledger, a workload and (decision P) a story plan, plus a registry. C1–C3 build and test against existing `sim-core` API only: `Ledger::open`, `apply_fault_plan`, `AchState::transition` and `HandlerKind::build`. Only C4, which proves end to end that naive goes red and hardened stays green, calls `run()`, so it waits for engine E6.
+**Does it need `run()`? No, except for one piece.** A scenario is data: an opening ledger, a workload and (decision P) a story plan, plus a registry. C1–C3 build and test against existing `sim-core` API only: `Ledger::open`, `apply_fault_plan`, `AchState::transition` and `HandlerKind::build`. Only C4, which proves end to end that naive goes red and hardened stays green, calls `run()`. That landed with engine E6 (`3f423e5`), so nothing here is blocked.
 
-**Status (2026-10-03):** not started. Decision P awaits approval.
+**Status (2026-10-03):** decision P is approved (`story_plan`). C1–C5 are in progress on branch `scenarios`.
 
 ## The principle behind most decisions below
 **A scenario's baseline is clean, and every red comes from a fault.** Under an empty plan, both handlers pass every invariant on every scenario. Each scenario's bug comes from a small explicit fault plan, its story plan. That way the UI can show which fault broke what, the shrinker has something to work on, and it matches V1's definition: "inject a fault, watch it break the naive handler".
 
-## Decision P: how a scenario shows its bug (needs approval)
+## Decision P: how a scenario shows its bug (approved by the user, 2026-10-03)
 D3 says scenario 1's retry is a provider-side `Duplicate` of the capture webhook. A redelivery keeps the capture's own `EventId`, and `apply_fault_plan` requires unique workload ids, so the duplicate can only come from a fault, not from the workload. The same holds for scenario 3's redelivered return. V1's acceptance check ("run scenario 1 under naive → `single_capture_per_intent` goes red", `v1-mvp-plan.md`) therefore needs a fault in the run.
 
 **A. Each scenario carries a `story_plan: FaultPlan`**
@@ -27,10 +27,10 @@ D3 says scenario 1's retry is a provider-side `Duplicate` of the capture webhook
 - ✅ No code.
 - ❌ The demo depends on the user knowing which op to add to which event, and the acceptance check isn't one click.
 
-**Recommended: A.**
+**Chosen: A.**
 
 ## Deviations from README / TODO.md (CLAUDE.md requires flagging these)
-1. **`Scenario` gains `story_plan: FaultPlan`** (decision P). README §6.1 doesn't have it. *Needs approval.*
+1. **`Scenario` gains `story_plan: FaultPlan`** (decision P). README §6.1 doesn't have it. Approved by the user.
 
 ## The three scenarios
 Times are simulated ms, written with named constants (engine decision T). Every opening has zero balances on the three accounts the handlers post to: `external:card`, `external:bank` and `merchant`. That sums to zero, so `Ledger::open` accepts it. External accounts are counterparties and may go negative.
@@ -54,7 +54,7 @@ Branch `scenarios`, one commit per piece. Each is done when its tests pass and `
 | C1 | Crate wiring, `Scenario`, registry, validation tests, scenario 1 | Decision P | No |
 | C2 | Scenario 2 | C1 | No |
 | C3 | Scenario 3 (ACH), plus an ACH lifecycle test | C1 | No |
-| C4 | End-to-end story tests through `run()` | C1–C3, engine E6 | **Yes** |
+| C4 | End-to-end story tests through `run()` | C1–C3, engine E6 (done) | **Yes** |
 | C5 | Docs sync | C4 | No |
 
 ---

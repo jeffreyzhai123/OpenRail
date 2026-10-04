@@ -24,6 +24,7 @@ flagged item has been.
 | Fault 2 | `SimError` gains `InvalidFaultPlan(FaultError)` | `fault-injector-plan.md` | Approved |
 | Fault 3 | `seed` is used (resolves Engine 5 once F3 lands) | `fault-injector-plan.md` | Approved |
 | Fault 4 | `Rng::below(NonZeroU32)` becomes public | `fault-injector-plan.md` | Approved |
+| Scenarios 1 | `Scenario` gains `story_plan: FaultPlan` (decision P) | `scenarios-plan.md` | **Approved 2026-10-03** |
 
 Engine 7 and Fault 1 were the two outstanding approvals; both are now approved, which unblocks E6 and F3's dependency tables in `deterministic-engine-plan.md` and `v1-mvp-plan.md` (updated to match).
 
@@ -37,6 +38,7 @@ Engine 7 and Fault 1 were the two outstanding approvals; both are now approved, 
 | R — what `Reorder` does | `Reorder { event_id, window }`: local window reversal | `fault-injector-plan.md` |
 | C — crash-restart handler replacement | `run()` takes a handler factory | `fault-injector-plan.md` |
 | O — fault-op application order | Fixed phases: Drop, Delay, Duplicate, Reorder | `fault-injector-plan.md` |
+| P — how a scenario shows its bug | A `story_plan` per scenario; the workload alone runs clean | `scenarios-plan.md` |
 
 ## Open decisions from `v1-mvp-plan.md`, now resolved (2026-10-03)
 
