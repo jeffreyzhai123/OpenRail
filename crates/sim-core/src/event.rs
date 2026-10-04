@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use crate::rails::ach::AchEvent;
 use crate::rails::card::CardEvent;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct EventId(pub u64);
 
 // Thin dispatcher over per-rail event vocabularies (crate::rails::{ach,card}).
