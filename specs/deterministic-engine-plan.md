@@ -101,7 +101,7 @@ TODO.md hashes only the popped events.
 | E2 | Virtual clock (`clock.rs`) | E0 | ✅ PR #2 |
 | E3 | Event queue (`event.rs`) | E0 | Open |
 | E4 | Trace hash (`trace.rs`) | E0 | ✅ PR #2 |
-| E5 | `EventHandler` trait and `HandlerKind` names (`handlers/mod.rs`) | E0 | Open |
+| E5 | `EventHandler` trait and `HandlerKind` names (`handlers/mod.rs`) | E0 | ✅ Done |
 | E6 | `run()` and the determinism tests (`simulator.rs`) | E2, E3, E4, E5, F1 | Open |
 | E7 | Docs sync (what the early sync left) | E6 | Open |
 

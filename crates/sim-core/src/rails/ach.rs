@@ -96,12 +96,21 @@ impl fmt::Display for AchReturnCode {
     }
 }
 
-/// ACH rail event vocabulary. V1 only has the terminal return event — the
-/// initiated/batched/settled transitions are driven by the scenario
-/// workload's timing rather than by their own `SimEvent`s; add variants here
-/// if that changes.
+/// ACH rail event vocabulary. `Initiated` is the only one that posts a
+/// capture-equivalent entry; `Returned` reverses it. `Batched`/`Settled` move
+/// no money (see `AchState`'s doc comment) and carry no amount.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AchEvent {
+    Initiated {
+        entry_id: AchEntryId,
+        amount: Money,
+    },
+    Batched {
+        entry_id: AchEntryId,
+    },
+    Settled {
+        entry_id: AchEntryId,
+    },
     Returned {
         entry_id: AchEntryId,
         code: AchReturnCode,
