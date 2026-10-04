@@ -78,6 +78,13 @@
     "external:card": 0,
     "merchant": 0
   },
+  "posted": [
+    1,
+    0,
+    0,
+    1,
+    0
+  ],
   "replay": "1.eyJzY2VuYXJpb19pZCI6ImxhdGUtYWNoLXJldHVybiIsInNlZWQiOjAsImhhbmRsZXIiOiJoYXJkZW5lZCIsImZhdWx0X3BsYW4iOlt7IkR1cGxpY2F0ZSI6eyJldmVudF9pZCI6NH19XX0",
   "scenario_id": "late-ach-return",
   "seed": 0,

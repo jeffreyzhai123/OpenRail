@@ -40,6 +40,11 @@ impl std::error::Error for SimError {}
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RunResult {
     pub trace: Vec<SimEvent>,
+    /// Aligned with `trace`: how many journal entries each delivered event
+    /// posted. A journal entry only records its source event id, which can't
+    /// say which of two deliveries of the same event posted it, so this is
+    /// what lets a timeline show the balances after any step.
+    pub posted: Vec<usize>,
     pub opening: BTreeMap<String, Money>,
     pub journal: Vec<JournalEntry>,
     pub fault_plan: FaultPlan,
@@ -78,6 +83,7 @@ pub fn run(
     let mut clock = VirtualClock::default();
     let mut handler = new_handler();
     let mut trace = Vec::new();
+    let mut posted = Vec::new();
 
     while let Some(event) = queue.pop() {
         while next_crash.is_some_and(|at| at <= event.time) {
@@ -85,7 +91,9 @@ pub fn run(
             next_crash = pending_crashes.next();
         }
         clock.advance_to(event.time).map_err(SimError::Clock)?;
-        for entry in handler.handle(&event, &ledger) {
+        let entries = handler.handle(&event, &ledger);
+        posted.push(entries.len());
+        for entry in entries {
             ledger.post(entry).map_err(|error| SimError::Posting {
                 event: event.id,
                 error,
@@ -99,6 +107,7 @@ pub fn run(
 
     Ok(RunResult {
         trace,
+        posted,
         opening: ledger.opening().clone(),
         journal: ledger.journal().to_vec(),
         fault_plan: plan,
@@ -446,5 +455,51 @@ mod tests {
             run_naive(&workload, &plan).trace_hash,
             "e7446d0498dcdf6b847e7f7691cf3d89c2500618483cb6b98ea14dcfa8f91be6"
         );
+    }
+
+    #[test]
+    fn posted_places_each_posting_at_the_delivery_that_made_it() {
+        // Capture and refund swapped, and the refund redelivered: hardened
+        // rejects the early refund and posts its copy. Matching journal
+        // entries by source would put the refund at the first delivery.
+        let workload = [captured(1, 0), refunded(2, 100, 1)];
+        let plan = vec![
+            FaultOp::Reorder {
+                event_id: EventId(1),
+                window: 2,
+            },
+            FaultOp::Duplicate {
+                event_id: EventId(2),
+            },
+        ];
+        let result = run_hardened(&workload, &plan);
+        let ids: Vec<u64> = result.trace.iter().map(|event| event.id.0).collect();
+        assert_eq!(ids, [2, 1, 2]);
+        assert_eq!(result.posted, [0, 1, 1]);
+        assert_eq!(result.journal[1].source, EventId(2));
+    }
+
+    #[test]
+    fn posted_has_one_count_per_delivery_summing_to_the_journal() {
+        let workload = [captured(1, 0), refunded(2, 100, 1), captured(3, 200)];
+        for seed in 0..50 {
+            for result in [
+                run(&opening(), &workload, seed, None, &|| {
+                    Box::new(NaiveHandler)
+                })
+                .unwrap(),
+                run(&opening(), &workload, seed, None, &|| {
+                    Box::new(HardenedHandler)
+                })
+                .unwrap(),
+            ] {
+                assert_eq!(result.posted.len(), result.trace.len(), "seed {seed}");
+                assert_eq!(
+                    result.posted.iter().sum::<usize>(),
+                    result.journal.len(),
+                    "seed {seed}"
+                );
+            }
+        }
     }
 }

@@ -81,6 +81,9 @@ export interface RunResponse {
   /** The effective plan: the request's, or the one generated from the seed. */
   fault_plan: FaultOp[]
   trace: SimEvent[]
+  /** Aligned with `trace`: how many journal entries each delivered event
+   * posted, so balances can be shown after any step. */
+  posted: number[]
   opening: Record<string, Cents>
   journal: JournalEntry[]
   ledger: { accounts: Record<string, Cents> }

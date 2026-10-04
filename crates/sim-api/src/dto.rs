@@ -34,6 +34,8 @@ pub(crate) struct RunResponse {
     /// The effective plan: the request's, or the one generated from the seed.
     fault_plan: FaultPlan,
     trace: Vec<SimEvent>,
+    /// Aligned with `trace`: the journal entries each delivered event posted.
+    posted: Vec<usize>,
     opening: BTreeMap<String, Money>,
     journal: Vec<JournalEntry>,
     ledger: LedgerSnapshot,
@@ -63,6 +65,7 @@ impl RunResponse {
             handler,
             fault_plan: result.fault_plan,
             trace: result.trace,
+            posted: result.posted,
             opening: result.opening,
             journal: result.journal,
             ledger: result.ledger,

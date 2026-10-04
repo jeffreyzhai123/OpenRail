@@ -214,6 +214,7 @@ impl HandlerKind { fn build(self) -> Box<dyn EventHandler> } // callers pass &||
 // sim-core/src/simulator.rs — the main entrypoint everything else calls
 struct RunResult {
     trace: Vec<SimEvent>,
+    posted: Vec<usize>,                // aligned with trace: the journal entries each delivered event posted
     opening: BTreeMap<String, Money>, // run() consumes the Ledger, so nothing after it can recover these otherwise
     journal: Vec<JournalEntry>,
     fault_plan: FaultPlan,             // the effective plan: the input if explicit, or generated from the seed if None

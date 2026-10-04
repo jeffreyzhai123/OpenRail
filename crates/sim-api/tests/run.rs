@@ -122,6 +122,27 @@ async fn the_replay_link_encodes_the_effective_plan() {
 }
 
 #[tokio::test]
+async fn posted_has_one_count_per_trace_event_summing_to_the_journal() {
+    for scenario in scenarios() {
+        let reply = post("/run", &run_request(scenario.id, 9, "naive", Value::Null)).await;
+        let body = reply.json();
+        let posted: Vec<u64> = serde_json::from_value(body["posted"].clone()).unwrap();
+        assert_eq!(
+            posted.len(),
+            body["trace"].as_array().unwrap().len(),
+            "{}",
+            scenario.id
+        );
+        assert_eq!(
+            posted.iter().sum::<u64>() as usize,
+            body["journal"].as_array().unwrap().len(),
+            "{}",
+            scenario.id
+        );
+    }
+}
+
+#[tokio::test]
 async fn an_unknown_scenario_is_a_404() {
     let reply = post(
         "/run",

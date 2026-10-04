@@ -86,6 +86,16 @@ describe('a run response is rejected at the field that breaks the contract', () 
       (body) => (body.invariants = 'none'),
       'run.invariants',
     ],
+    [
+      'posted counts that miss a trace event',
+      (body) => (body.posted as unknown[]).pop(),
+      'run.posted',
+    ],
+    [
+      'posted counts that disagree with the journal',
+      (body) => ((body.posted as number[])[0] += 1),
+      'run.posted',
+    ],
   ]
 
   test.each(cases)('%s', (_, breakIt, path) => {

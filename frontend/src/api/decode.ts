@@ -300,17 +300,34 @@ function invariantResult(value: unknown, path: string): InvariantResult {
   }
 }
 
+function nonNegative(value: unknown, path: string): number {
+  const number = safeInteger(value, path)
+  return number >= 0 ? number : fail(path, 'a non-negative integer')
+}
+
 export function decodeRunResponse(value: unknown, path = 'run'): RunResponse {
   const fields = object(value, path)
   const ledger = object(field(fields, 'ledger', path), `${path}.ledger`)
+  const trace = list(fields, 'trace', path, simEvent)
+  const posted = list(fields, 'posted', path, nonNegative)
+  const journal = list(fields, 'journal', path, journalEntry)
+  // The balance fold relies on these lining up, so drift is rejected here.
+  const postedTotal = posted.reduce((total, count) => total + count, 0)
+  if (posted.length !== trace.length || postedTotal !== journal.length) {
+    fail(
+      `${path}.posted`,
+      "one count per trace event, summing to the journal's length",
+    )
+  }
   return {
     scenario_id: string(fields, 'scenario_id', path),
     seed: seed(fields, 'seed', path),
     handler: handler(fields, 'handler', path),
     fault_plan: list(fields, 'fault_plan', path, decodeFaultOp),
-    trace: list(fields, 'trace', path, simEvent),
+    trace,
+    posted,
     opening: centsRecord(field(fields, 'opening', path), `${path}.opening`),
-    journal: list(fields, 'journal', path, journalEntry),
+    journal,
     ledger: {
       accounts: centsRecord(
         field(ledger, 'accounts', `${path}.ledger`),

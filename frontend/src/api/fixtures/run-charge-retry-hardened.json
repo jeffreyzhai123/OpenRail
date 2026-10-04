@@ -78,6 +78,12 @@
     "external:card": 0,
     "merchant": 0
   },
+  "posted": [
+    0,
+    1,
+    0,
+    1
+  ],
   "replay": "1.eyJzY2VuYXJpb19pZCI6ImNoYXJnZS1yZXRyeSIsInNlZWQiOjAsImhhbmRsZXIiOiJoYXJkZW5lZCIsImZhdWx0X3BsYW4iOlt7IkR1cGxpY2F0ZSI6eyJldmVudF9pZCI6Mn19XX0",
   "scenario_id": "charge-retry",
   "seed": 0,
