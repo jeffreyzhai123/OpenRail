@@ -3,7 +3,13 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, test } from 'vitest'
 import App from './App'
 import { ApiError, NetworkError, type SimClient } from './api/client'
-import type { RunRequest, RunResponse, ScenarioSummary } from './api/types'
+import type {
+  RunRequest,
+  RunResponse,
+  ScenarioSummary,
+  ShrinkResponse,
+} from './api/types'
+import { describeFault } from './lib/faultPlan'
 import { fixture } from './test/fixtures'
 
 const notYet = () => Promise.reject(new Error('not used by the core loop'))
@@ -138,6 +144,21 @@ describe('scrubbing', () => {
     expect(merchantBalance()).toBe('$0.00')
     expect(screen.getByText('Before any delivery.')).toBeDefined()
   })
+
+  test('focus follows the selected step, and stops at the ends', async () => {
+    const { user } = await renderApp()
+    await run(user)
+    const selected = () => document.activeElement?.getAttribute('aria-current')
+
+    await user.click(screen.getByRole('button', { name: 'Opening balances' }))
+    await user.keyboard('{ArrowRight}{ArrowRight}')
+    expect(selected()).toBe('step')
+    expect(document.activeElement?.textContent).toContain('2 s')
+
+    await user.keyboard('{Home}{ArrowLeft}')
+    expect(selected()).toBe('step')
+    expect(document.activeElement?.textContent).toBe('Opening balances')
+  })
 })
 
 describe('inputs', () => {
@@ -164,6 +185,25 @@ describe('inputs', () => {
 
     await run(user)
     expect(requests[0]).toMatchObject({ seed: 42, fault_plan: null })
+  })
+
+  test('after the run, a generated plan lists the faults sim-api used', async () => {
+    // Any plan unlike the story's: the list must come from the response.
+    const { original } = fixture('shrink.json') as ShrinkResponse
+    const { user } = await renderApp({
+      run: async () => ({
+        ...(fixture('run-charge-retry-naive.json') as RunResponse),
+        fault_plan: original,
+      }),
+    })
+    const seed = screen.getByRole('textbox', { name: 'Seed' })
+    await user.clear(seed)
+    await user.type(seed, '42')
+    await run(user)
+
+    expect(screen.getByText('Generated from seed 42:')).toBeDefined()
+    const faults = screen.getAllByRole('listitem').map((li) => li.textContent)
+    expect(faults).toEqual(expect.arrayContaining(original.map(describeFault)))
   })
 
   test("a seed that isn't a u32 can't run", async () => {

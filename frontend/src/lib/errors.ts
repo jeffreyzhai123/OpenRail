@@ -1,7 +1,12 @@
 // What the error banner says. sim-api's codes are matched exactly, never its
 // message text (specs/v1-frontend-tasks.md, "What the contract implies").
 
-import { ApiError, NetworkError, TimeoutError } from '../api/client'
+import {
+  ApiError,
+  NetworkError,
+  TimeoutError,
+  UNEXPECTED_RESPONSE,
+} from '../api/client'
 import { DecodeError } from '../api/decode'
 import { MAX_PLAN_FAULTS } from '../api/types'
 import { BalanceMismatchError } from './balances'
@@ -20,15 +25,30 @@ const API_MESSAGES: Record<string, string> = {
   timeout: 'The simulation took too long. Try again in a moment.',
 }
 
+const UNREACHABLE =
+  "Couldn't reach sim-api. In development, start it with `cargo run -p sim-api`."
+
+/** Statuses a proxy sends for a backend it can't reach. */
+const GATEWAY_STATUSES = new Set([502, 503, 504])
+
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
+    // sim-api's own errors carry its envelope. A bare gateway status comes
+    // from a proxy in front of it, such as the Vite dev proxy when sim-api
+    // isn't running.
+    if (
+      error.code === UNEXPECTED_RESPONSE &&
+      GATEWAY_STATUSES.has(error.status)
+    ) {
+      return UNREACHABLE
+    }
     return API_MESSAGES[error.code] ?? error.message
   }
   if (error instanceof TimeoutError) {
     return "sim-api didn't answer in time."
   }
   if (error instanceof NetworkError) {
-    return "Couldn't reach sim-api. In development, start it with `cargo run -p sim-api`."
+    return UNREACHABLE
   }
   if (error instanceof DecodeError) {
     return `sim-api sent a response this app doesn't understand (at ${error.path}).`

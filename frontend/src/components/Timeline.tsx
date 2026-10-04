@@ -30,10 +30,13 @@ export function Timeline({ trace, entries, step, onStep }: TimelineProps) {
       Home: 0,
       End: trace.length,
     }
-    if (event.key in moves) {
-      event.preventDefault()
-      onStep(moves[event.key])
-    }
+    if (!(event.key in moves)) return
+    event.preventDefault()
+    const next = Math.min(Math.max(moves[event.key], 0), trace.length)
+    onStep(next)
+    // Focus follows the selection, so the ring and the highlight agree and
+    // a screen reader reads the row now selected. Button i shows step i.
+    event.currentTarget.querySelectorAll('button').item(next)?.focus()
   }
 
   const selected = step > 0 ? trace[step - 1] : null

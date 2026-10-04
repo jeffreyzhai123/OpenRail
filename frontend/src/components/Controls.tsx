@@ -9,6 +9,8 @@ interface ControlsProps {
   seed: number | null
   handler: Handler
   plan: FaultOp[] | null
+  /** The plan sim-api generated for the shown run, when `plan` is null. */
+  generated: FaultOp[] | null
   running: boolean
   canRun: boolean
   onScenario: (id: string) => void
@@ -89,7 +91,11 @@ export function Controls(props: ControlsProps) {
 
       <div className="field">
         <h3>Faults</h3>
-        <FaultList plan={props.plan} seed={props.seed} />
+        <FaultList
+          plan={props.plan}
+          generated={props.generated}
+          seed={props.seed}
+        />
       </div>
 
       <button
@@ -106,12 +112,14 @@ export function Controls(props: ControlsProps) {
 
 function FaultList({
   plan,
+  generated,
   seed,
 }: {
   plan: FaultOp[] | null
+  generated: FaultOp[] | null
   seed: number | null
 }) {
-  if (plan === null) {
+  if (plan === null && generated === null) {
     return (
       <p className="hint">
         {seed === null
@@ -120,14 +128,19 @@ function FaultList({
       </p>
     )
   }
-  if (plan.length === 0) {
-    return <p className="hint">No faults.</p>
-  }
+  const shown = plan ?? generated ?? []
   return (
-    <ul className="faults">
-      {plan.map((op, index) => (
-        <li key={index}>{describeFault(op)}</li>
-      ))}
-    </ul>
+    <>
+      {plan === null && <p className="hint">Generated from seed {seed}:</p>}
+      {shown.length === 0 ? (
+        <p className="hint">No faults.</p>
+      ) : (
+        <ul className="faults">
+          {shown.map((op, index) => (
+            <li key={index}>{describeFault(op)}</li>
+          ))}
+        </ul>
+      )}
+    </>
   )
 }

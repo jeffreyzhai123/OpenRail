@@ -1,5 +1,10 @@
 import { expect, test } from 'vitest'
-import { ApiError, NetworkError, TimeoutError } from '../api/client'
+import {
+  ApiError,
+  NetworkError,
+  TimeoutError,
+  UNEXPECTED_RESPONSE,
+} from '../api/client'
 import { DecodeError } from '../api/decode'
 import { BalanceMismatchError } from './balances'
 import { errorMessage } from './errors'
@@ -18,6 +23,21 @@ test("other codes fall back to sim-api's message", () => {
     'no scenario has the id "x"',
   )
   expect(errorMessage(error)).toBe('no scenario has the id "x"')
+})
+
+test("a proxy's bare gateway error means sim-api is down", () => {
+  const proxied = new ApiError(502, UNEXPECTED_RESPONSE, 'HTTP 502')
+  expect(errorMessage(proxied)).toMatch(/cargo run -p sim-api/)
+})
+
+test("sim-api's own 503 is its timeout, not an unreachable server", () => {
+  const timeout = new ApiError(503, 'timeout', 'run exceeded 10 s')
+  expect(errorMessage(timeout)).toMatch(/took too long/)
+})
+
+test('other bare statuses keep their status', () => {
+  const error = new ApiError(500, UNEXPECTED_RESPONSE, 'HTTP 500')
+  expect(errorMessage(error)).toBe('HTTP 500')
 })
 
 test.each<[unknown, RegExp]>([

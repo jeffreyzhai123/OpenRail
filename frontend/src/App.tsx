@@ -68,6 +68,9 @@ function App({ client }: { client: SimClient }) {
           seed={state.seed}
           handler={state.handler}
           plan={state.plan}
+          generated={
+            state.plan === null ? (run?.response.fault_plan ?? null) : null
+          }
           running={state.status === 'running'}
           canRun={request !== null && state.status === 'ready'}
           onScenario={(id) => dispatch({ type: 'scenarioPicked', id })}
