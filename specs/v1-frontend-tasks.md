@@ -21,8 +21,9 @@ covers what remains: the frontend itself.
 **Status (2026-10-03):** revised after a review against the code. The app
 develops against a local sim-api (there's no fixtures mode), step 8 is
 deferred because deploy is paused, step 1 gains the Vite dev proxy, and the
-per-step journal counts the timeline needs (pending approval) come before
-step 3. Step 1 is done on branch `frontend-v1`; step 2 is next.
+per-step journal counts the timeline needs (approved) land before step 3.
+Step 1 is done on branch `frontend-v1`; the per-step counts and step 2 are
+next.
 
 ## Principles (unchanged from the original plan)
 
@@ -114,22 +115,38 @@ unsupported encoding version shows a clear message, not a generic error.
   `does_not_fail`, `unknown_invariant`, `invalid_replay`,
   `unsupported_encoding_version` and `timeout`. Anything else gets the generic
   error banner with its message.
-- **Pending, needs approval: per-step journal counts.** Nothing in
-  `RunResponse` says which trace event posted which journal entry, and
-  matching by `source` breaks when an event is delivered twice but only one
+- **Per-step journal counts (approved by the user, 2026-10-03).**
+
+  *The issue.* The timeline steps through the delivered events (`trace`), and
+  the balance panel shows the balances as of step k. That means folding the
+  journal entries posted up to that step, but nothing used to say which step
+  posted which entry. A journal entry only records its `source` event id,
+  and that isn't enough when an event is delivered twice and only one
   delivery posts. For example, `refund-before-capture` under hardened, with
   the capture and refund swapped and the refund redelivered:
   ```
-  trace:   id 1 @0ms, id 3 @1000ms (rejected), id 2 @1500ms, id 3 @31500ms (posted)
-  journal: [Capture from 2, Refund from 3]
+  trace (delivered events)            journal (what was posted)
+  step 0: event 1  Authorized  @0ms        Capture   from event 2
+  step 1: event 3  Refunded    @1000ms     Refund    from event 3
+  step 2: event 2  Captured    @1500ms
+  step 3: event 3  Refunded    @31500ms   (redelivered copy)
   ```
-  Matching by `source` puts the refund at step 1, before the capture, so the
-  balance panel would show a state that never happened. The fix:
-  `RunResult` and `RunResponse` gain `posted: number[]`, aligned with
-  `trace`, counting the journal entries each delivered event posted. It isn't
-  part of the trace hash, so replay links don't change; the fixtures
-  regenerate. This is the one Rust change the frontend needs (`sim-core` and
-  `sim-api`), and step 3's scrubber depends on it.
+  Hardened rejected the refund at step 1, since nothing had been captured,
+  and the redelivered copy at step 3 is the one that posted. Matching entries
+  to the first delivery of their `source` puts the refund at step 1, so the
+  balance panel would show the merchant refunding money it never received: a
+  negative balance that never existed, on the handler that got it right. The
+  final balances are correct either way; only the step-by-step view is wrong.
+
+  *The fix.* `RunResult` and `RunResponse` gain `posted: number[]`, aligned
+  with `trace`: how many journal entries each delivered event posted. Here
+  it's `[0, 0, 1, 1]`, and the balances after step k are the opening plus the
+  first `posted[0] + … + posted[k]` entries, exactly. It isn't part of the
+  trace hash, so replay links still verify, and the golden fixtures
+  regenerate. It deviates from README §6.1's `RunResult`, and it's the one
+  Rust change the frontend needs (`simulator.rs` and sim-api, Person A's files
+  in the task split). The decoder checks that `posted` has one count per
+  trace event and sums to the journal's length.
 
 ## Layout of `frontend/`
 ```
@@ -179,8 +196,8 @@ the Vite dev proxy forwards to `localhost:3000`.
 2. **`lib/`.** money, seed, balances, faultPlan, replayLink, each with unit
    tests.
 3. **Core loop.** Controls, Timeline, BalancePanel, InvariantPanel and the
-   reducer, running against a local sim-api. The scrubber needs the per-step
-   journal counts (pending, above). This alone demos V1's core claim locally:
+   reducer, running against a local sim-api. The scrubber folds the journal
+   with the per-step counts (above). This alone demos V1's core claim locally:
    naive breaks, hardened holds.
 4. **FaultPlanEditor.** Edit, then re-run with the explicit plan.
 5. **Share and replay.** Fragment, `GET /replay`, ReplayBadge, unsupported-
@@ -221,7 +238,7 @@ the Vite dev proxy forwards to `localhost:3000`.
 
 - `npm --prefix frontend run check` passes. `cargo test`, `cargo clippy
   --all-targets -- -D warnings` and `cargo fmt --check` stay green; the only
-  Rust edit is the per-step journal counts, once approved.
+  Rust edit is the per-step journal counts.
 - `cargo run -p sim-api` and `npm --prefix frontend run dev`, then walk through
   the UI with the `run` skill (screenshots). Pick scenario 1 with the naive
   handler and Run — the invariant goes red. Scrub to the duplicate capture and

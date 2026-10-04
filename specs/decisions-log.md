@@ -26,6 +26,7 @@ flagged item has been.
 | Fault 4 | `Rng::below(NonZeroU32)` becomes public | `fault-injector-plan.md` | Approved |
 | Scenarios 1 | `Scenario` gains `story_plan: FaultPlan` (decision P) | `scenarios-plan.md` | **Approved 2026-10-03** |
 | sim-api 1–5 | Extra sim-api files, `GET /health`, error codes as contract, a 100-fault plan cap, the frontend `AchEvent` drift fix | `sim-api-plan.md` | **Approved 2026-10-03** |
+| Frontend 1 | `RunResult` and `RunResponse` gain `posted`, the journal entries each trace event posted, so the timeline can place every posting at the right step | `v1-frontend-tasks.md` | **Approved 2026-10-03** |
 
 Engine 7 and Fault 1 were the two outstanding approvals; both are now approved, which unblocks E6 and F3's dependency tables in `deterministic-engine-plan.md` and `v1-mvp-plan.md` (updated to match).
 
