@@ -11,7 +11,7 @@ What A starts from:
 
 The work is split into pieces E0–E7 below. Each piece is one commit on a feature branch, merged into `develop` by PR. It names what it depends on, and is done when its own tests pass and `cargo fmt`, `cargo clippy --all-targets -- -D warnings` and `cargo test` are green.
 
-**Status (2026-10-03):** E0, E1, E2 and E4 are merged (PR #2, squash commit `3fc6ff3`). E3 and E5 are next. E6 also needs F1 (`fault-injector-plan.md`, on branch `fault-injector`); deviation 7 is now approved (below). README §6.1/§6.5 and TODO.md were synced early, because CLAUDE.md makes the README the design source of truth. E7 covers what's left. See `specs/decisions-log.md` for a consolidated view of every decision across this plan, `fault-injector-plan.md` and `v1-mvp-plan.md`.
+**Status (2026-10-03):** all pieces are done. E0–E4 merged in PR #2 (`3fc6ff3`), E5 with the handlers in `c69d2f1`, and E3 and E6 in `3f423e5`, with F3 folded into `run()`. E6's remaining tests (a real crash-restart test, replay, the golden full-run hash, Delay/Drop, the `Posting` error, trace order) landed in `ca2740a`. E7's docs sync is done. See `specs/decisions-log.md` for a consolidated view of every decision across this plan, `fault-injector-plan.md` and `v1-mvp-plan.md`.
 
 ## The principle behind most decisions below
 **Every ordering is explicit, and nothing reads ambient state.** The queue orders by `(time, seq)`, ties fall back to workload slice order, JSON uses field declaration order, and the ledger uses `BTreeMap`. Nothing reads a wall clock, a randomized hasher or the environment. Second rule: **low-level code reports, `run()` decides.** The clock, queue, trace and ledger return errors, and `run()` is the one boundary that turns them into a `SimError`.
@@ -103,7 +103,7 @@ TODO.md hashes only the popped events.
 | E4 | Trace hash (`trace.rs`) | E0 | ✅ PR #2 |
 | E5 | `EventHandler` trait and `HandlerKind` names (`handlers/mod.rs`) | E0 | ✅ Done |
 | E6 | `run()` and the determinism tests (`simulator.rs`) | E2, E3, E4, E5, F1 | ✅ Done |
-| E7 | Docs sync (what the early sync left) | E6 | Open |
+| E7 | Docs sync (what the early sync left) | E6 | ✅ Done |
 
 E3 and E5 don't depend on each other. **Land E5 early:** it's tiny, and it unblocks the handlers track (`v1-mvp-plan.md` S1b) and lets sim-api name handlers. E1 isn't on `run()`'s path yet (deviation 5). Its first consumer is fault generation (S2).
 
@@ -264,7 +264,7 @@ Flow:
 - **Determinism smoke (the test that must never go yellow):** 100 runs with seed 42 all give an identical `RunResult` and `trace_hash`.
 - **Golden full-run hash:** `run()` on the fixed workload gives a pinned `trace_hash`. This is the cross-process check, since the ×100 test runs in one process and can't see a per-process difference. Because the hash includes the journal, it also covers the handler and ledger path.
 - The trace is in `(time, seq)` order, and same-time events keep their workload order.
-- The clean workload ends with the expected balances, and all 4 invariants pass. `opening` equals the input, and `journal` holds one entry per posted entry, in posting order.
+- The clean workload ends with the expected balances, and every invariant passes. `opening` equals the input, and `journal` holds one entry per posted entry, in posting order.
 - **Seam check:** a duplicated capture (new `EventId`, same `charge_id`) makes `single_capture_per_intent` fail while the others pass, end to end through `run()`.
 - **Each fault breaks the naive `CardHandler` visibly:**
   - Duplicating the capture fails `single_capture_per_intent`.
@@ -279,10 +279,7 @@ Flow:
 **Done when:** TODO.md's "Done for today when" holds. The gates are green, `run()` produces a stable `trace_hash` (both the golden and the ×100 tests), and none of the forbidden items are in `sim-core`.
 
 ## E7: Docs sync
-README §6.1/§6.5 (the `run()` signature, the composite `EventKind`, `rails/` paths, ms ticks, `hash_run`) and TODO.md's Step 0, `rng`, `clock` and `trace` boxes were synced early, on 2026-10-03. What's left:
-- TODO.md: tick the queue, `run()` and determinism boxes.
-- README §6.1: `RunResult`'s new fields once deviation 7 is approved, and `HandlerKind`.
-- `v1-mvp-plan.md`: flip feature 1's status to done, and mark gap 1 resolved.
+Done on 2026-10-03. README §6.1/§6.5 (the `run()` signature, the composite `EventKind`, `rails/` paths, ms ticks, `hash_run`, `RunResult`'s new fields, `HandlerKind::build`) and every TODO.md box for this plan are synced, and `v1-mvp-plan.md` marks feature 1 done and gap 1 resolved.
 
 ---
 

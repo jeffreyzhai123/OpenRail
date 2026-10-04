@@ -9,10 +9,10 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 | # | V1 feature | Status | Spec |
 |---|---|---|---|
 | 1 | Virtual clock, seeded RNG, event queue, trace hashing | ✅ Done (E1–E6) | ✅ `deterministic-engine-plan.md` |
-| 2 | `Money(i64)` ledger + balance invariants | ✅ Done (#1–#4 run; #5/#6 named, V4) | ✅ `ledger-plan.md` |
+| 2 | `Money(i64)` ledger + balance invariants | ✅ Done (#1–#4 and #7 run; #5/#6 named, V4) | ✅ `ledger-plan.md` |
 | 3 | ACH state machine | 🟡 State machine done (`rails/ach.rs`); D2 resolved to pull it into V1, so it still needs `Batched`/`Settled` `AchEvent`s and scenario 3 | ✅ |
 | 4 | Naive vs hardened handler pair | ✅ Done (E5, S1b) | ✅ (S1b) |
-| 5 | Fault injector: duplicate, reorder, delay, drop, crash-restart | 🟡 `apply_fault_plan()` done (F1, `4ac0f87` on `fault-injector`, not merged). Seed → plan generation (F2) and `run()` wiring (E6, F3) open | ✅ `fault-injector-plan.md` |
+| 5 | Fault injector: duplicate, reorder, delay, drop, crash-restart | ✅ Done: applying a plan (F1, PR #3), seed → plan generation (F2, PR #4), and both wired into `run()` with the effective plan returned (F3, `3f423e5`) | ✅ `fault-injector-plan.md` |
 | 6 | Replay-by-seed links (basic URL encoding) | ❌ No `encode_run` / `decode_run` | ❌ |
 | 7 | Shrinker, single-pass greedy | ❌ `shrink.rs` is empty | ❌ |
 | 8 | Sweep harness (naive vs hardened failure rate) | ❌ | ❌ |
@@ -22,9 +22,9 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 | — | `sim-api` (Axum routes the UI calls) | ❌ `main.rs` is hello-world, and there are no deps (axum, tokio, serde) | ❌ (its contract lives in `frontend-plan.md`) |
 
 ## Gaps inside the existing specs
-1. **`RunResult` is missing `opening` and `journal`.** `frontend-plan.md` ask #4 needs both for the timeline scrubber. `run()` consumes the `Ledger`, so sim-api can't recover them afterwards. → Now folded into `deterministic-engine-plan.md` as deviation 7 (piece E6), pending approval. Later, ask #3 also needs the effective `fault_plan`.
+1. **`RunResult` is missing `opening` and `journal`.** `frontend-plan.md` ask #4 needs both for the timeline scrubber. `run()` consumes the `Ledger`, so sim-api can't recover them afterwards. → Resolved: `RunResult` has `opening`, `journal` and the effective `fault_plan` (E6 and F3, `3f423e5`).
 2. **The shrinker and sweep need a fresh handler for every run.** → Solved by `run()` taking a handler factory (`fault-injector-plan.md` decision C). `HandlerKind { Naive, Hardened }`, serialized as `"naive"`/`"hardened"`, lands with the trait in engine E5, so sim-api, the replay encoding and the sweep can name handlers early. `build() -> Box<dyn EventHandler>` lands with the handlers (S1b), and callers pass `&|| kind.build()`. The names match the frontend's `Handler` type and are what `encode_run` stores.
-3. **Seeds do nothing until fault generation exists** (A-spec deviation 5). Until then, every seed gives the same run, so **the sweep is meaningless** and replay-by-seed is trivial. Seed → plan generation is on the critical path, not a polish item.
+3. **Seeds do nothing until fault generation exists** (A-spec deviation 5). Until then, every seed gives the same run, so **the sweep is meaningless** and replay-by-seed is trivial. Seed → plan generation is on the critical path, not a polish item. → Resolved: `run()` generates a plan from the seed when none is given (F3).
 
 ## Missing specs, and the decisions each one must make
 **S1a: scenarios** (`sim-scenarios`) → done, see `scenarios-plan.md`. Each scenario carries a `story_plan` (decision P).
@@ -56,19 +56,18 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 - Fly.io or Railway for the API, plus static hosting for `frontend/`. Then the smoke test from `frontend-plan.md` (walkthrough with `VITE_SIM_CLIENT=http`).
 
 ## Critical path and parallel tracks
-**Critical path:** E3 + E5 → E6 (also needs F1) → F3 (also needs F2) → S3 → S4 → frontend step 8 → S5.
+**Critical path:** ~~E3 + E5 → E6 (also needs F1) → F3 (also needs F2)~~ → S3 → S4 → frontend step 8 → S5. Everything struck through is done.
 
-| Work | Needs | Can start |
+| Work | Needs | Status |
 |---|---|---|
-| E3 queue, E5 trait and `HandlerKind` names | — | Now |
-| F2 seed → plan | F1 | Now (F1 is on `fault-injector`) |
-| S1a scenarios, CI, frontend steps 1–7, replay-encoding spec | — | Now |
-| E6 `run()` | E3, E5, F1 | After E3 and E5 |
-| S1b handlers | E5 | After E5 |
-| F3 | E6, F2 | After E6 |
-| S3 shrink + sweep | F3 | After F3. The sweep's chart only means something once S1b exists. |
-| S4 sim-api | S3, S1a, `HandlerKind::build` (S1b) | After S3 |
-| Frontend step 8, golden fixtures, V1 acceptance | S4, S1b | Last |
+| E3 queue, E5 trait and `HandlerKind` | — | ✅ Done |
+| F1, F2 fault plans | — | ✅ Done |
+| E6 `run()`, F3 seed → plan in `run()` | E3, E5, F1, F2 | ✅ Done |
+| S1a scenarios, S1b handlers | E5 | ✅ Done |
+| S3 shrink + sweep | F3, S1b | Can start now |
+| CI, frontend steps 1–7, replay-encoding spec | — | Can start now |
+| S4 sim-api | S3, S1a, S1b | After S3 |
+| Frontend step 8, golden fixtures, V1 acceptance | S4 | Last |
 | S5 deploy | S4, D1 | Last |
 
 - **Track A (engine owner):** E5 first (it unblocks S1b), E3, E6, then F2/F3, then S3.

@@ -96,7 +96,7 @@ One commit per piece, on a feature branch merged into `develop` by PR (F1: `faul
 
 F1 and F2 are pure and only need types that already exist, so they can land before E3, E5 and E6.
 
-**Status (2026-10-03):** decisions R, C and O are approved. F1 is merged (PR #3). F2 is done on `fault-generation`, not merged yet: `generate_fault_plan` and a public `Rng::below`. Its rates match the spec (2.5 faults per 4-event run, 2% of seeds with none). Engine E6 builds on F1, applying explicit plans and crash-restarts, so F3 only adds generation and the effective plan. F3 waits on E6; deviation 1 (`RunResult.fault_plan`) is approved (above). See `specs/decisions-log.md` for a consolidated view of every decision across this plan, `deterministic-engine-plan.md` and `v1-mvp-plan.md`.
+**Status (2026-10-03):** decisions R, C and O are approved. All pieces are done. F1 merged in PR #3 and F2 in PR #4; F2's rates match the spec (2.5 faults per 4-event run, 2% of seeds with none). F3 was folded into E6's `run()` (`3f423e5`), and its replay and determinism tests landed in `ca2740a`. F4's docs sync is done. See `specs/decisions-log.md` for a consolidated view of every decision across this plan, `deterministic-engine-plan.md` and `v1-mvp-plan.md`.
 
 ---
 
@@ -184,9 +184,7 @@ E6 already applies explicit plans through `apply_fault_plan`, crash-restarts inc
 - `result.fault_plan` equals `generate_fault_plan(seed, workload)` for `None`, and equals the input for `Some`.
 
 ## F4: docs sync
-README §6.1 (`Reorder { event_id, window }`, the factory in `run()`) and §6.5 (`generate_fault_plan`), and the frontend's `FaultOp` type, were synced when the decisions were approved. What's left:
-- README §6.1: `RunResult.fault_plan`, once deviation 1 is approved.
-- `v1-mvp-plan.md`: feature 5 is done.
+Done on 2026-10-03. README §6.1 (`Reorder { event_id, window }`, the factory in `run()`, `RunResult.fault_plan`) and §6.5 (`generate_fault_plan`), and the frontend's `FaultOp` type, are synced, and `v1-mvp-plan.md` marks feature 5 done.
 
 ## What this means for the handlers (`v1-mvp-plan.md` S1b)
 - **Hardened idempotency has to be durable.** It should check `ledger.journal()` for an entry whose `source` is this event (a redelivery), or for a capture on the same intent. An in-memory set fails after a `CrashRestart`, and showing that is the point of the fault.

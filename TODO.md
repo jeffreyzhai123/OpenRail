@@ -13,11 +13,12 @@
 - [x] `rng.rs`: seeded PRNG from a `u64` seed (define how the seed folds into the 32-bit state); `next_u32`, `next_range`, `shuffle`. Test: same seed gives an identical sequence, and different seeds diverge.
       - Landed with a `u32` seed and no fold (`specs/deterministic-engine-plan.md` decision W).
 - [x] `clock.rs`: `VirtualClock` with `now()` and `advance_to(t)`. Advancing backwards panics or returns an error.
-- [ ] `event.rs`: `SimEvent`, `EventQueue` (BinaryHeap, min-ordered on `(time, seq)`, auto-incrementing `seq`). Test: tie-break by insertion order; proptest that pops come out in non-decreasing `(time, seq)`.
+- [x] `event.rs`: `SimEvent`, `EventQueue` (BinaryHeap, min-ordered on `(time, seq)`, auto-incrementing `seq`). Test: tie-break by insertion order; proptest that pops come out in non-decreasing `(time, seq)`.
 - [x] `trace.rs`: `hash_trace(&[SimEvent]) -> String`, canonical JSON then blake3. Test: stable across runs, and it changes when any event changes.
       - Landed as `hash_run(trace, journal)`, covering the journal too (decision H).
-- [ ] `simulator.rs`: `RunResult` and a stub `run(scenario, seed, fault_plan)` that drains the queue, advances the clock, posts to the ledger, runs invariants, and returns the trace hash. Use a hard-coded in-test workload (the scenarios crate is out of scope today).
-- [ ] Determinism smoke test: `run()` with the same seed ×100 gives an identical `trace_hash`.
+- [x] `simulator.rs`: `RunResult` and a stub `run(scenario, seed, fault_plan)` that drains the queue, advances the clock, posts to the ledger, runs invariants, and returns the trace hash. Use a hard-coded in-test workload (the scenarios crate is out of scope today).
+      - Landed as `run(initial_ledger, workload, seed: u32, fault_plan, new_handler) -> Result<RunResult, SimError>` (`specs/deterministic-engine-plan.md` E6).
+- [x] Determinism smoke test: `run()` with the same seed ×100 gives an identical `trace_hash`.
 
 ### Partner B: money and ledger domain
 - [x] `money.rs`: `Money(i64)`, `checked_add`/`checked_sub` (or `Add`/`Sub` returning `Option`/`Result`), `Display` as dollars.cents, serde. No float conversions.

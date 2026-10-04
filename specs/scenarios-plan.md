@@ -107,7 +107,7 @@ For every scenario, through `run()` with `&|| kind.build()` factories and explic
 - **Empty plan:** both handlers pass every invariant. This tests the principle.
 - **Story plan:** naive fails *exactly* the invariants in the table, and hardened passes all of them.
 
-Hardened under *generated* plans is left to the sweep (S3). One gap the sweep will surface: hardened's ACH `Returned` branch posts without checking for a capture. So a `Drop` of scenario 3's `Initiated` fails `refund_within_capture` under hardened. The fix belongs in the handlers (S1b): the same `already_captured` check the card branch has.
+Hardened under *generated* plans is left to the sweep (S3). One gap this surfaced is fixed: hardened's ACH `Returned` branch used to post without checking for a capture, so a `Drop` of scenario 3's `Initiated` turned hardened red on `refund_within_capture`. It now rejects such a return, as it does a card refund before its capture (`19fdf3f`), and `tests/stories.rs` has an end-to-end regression test.
 
 ## C5: docs sync
 - **README §6.1:** `Scenario.story_plan`, once decision P is approved. §6.5's file names already match.

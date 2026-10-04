@@ -208,7 +208,8 @@ trait EventHandler {
 // Which handler a run uses, as sim-api and replay links name it.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-enum HandlerKind { Naive, Hardened } // build() -> Box<dyn EventHandler> lands with the handlers
+enum HandlerKind { Naive, Hardened }
+impl HandlerKind { fn build(self) -> Box<dyn EventHandler> } // callers pass &|| kind.build() to run()
 
 // sim-core/src/simulator.rs — the main entrypoint everything else calls
 struct RunResult {
@@ -280,8 +281,10 @@ sim-core/src/
   rails/ach.rs    AchState enum + transition(), AchEvent
   rails/card.rs   CardEvent (CardState deferred past V1)
   rails/rtp.rs    stub, deferred past V3
-  handlers/mod.rs EventHandler trait
-  handlers/naive.rs, handlers/hardened.rs
+  handlers/mod.rs EventHandler trait, HandlerKind + build()
+  handlers/naive.rs     posts on every money event, no deduplication
+  handlers/hardened.rs  dedupes from ledger.journal() (survives CrashRestart); rejects a refund or
+                        ACH return before its capture (decisions-log.md D4, temporary)
   fault.rs        FaultOp, FaultPlan, apply_fault_plan() (pure), generate_fault_plan(seed)
   trace.rs        hash_run() — canonical JSON of (trace, journal), then blake3
   simulator.rs    run()
