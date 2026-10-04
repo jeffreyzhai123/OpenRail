@@ -5,7 +5,7 @@ README §3 V1 needs 3 playable scenarios: 2 card and 1 ACH (`decisions-log.md` D
 
 **Does it need `run()`? No, except for one piece.** A scenario is data: an opening ledger, a workload and (decision P) a story plan, plus a registry. C1–C3 build and test against existing `sim-core` API only: `Ledger::open`, `apply_fault_plan`, `AchState::transition` and `HandlerKind::build`. Only C4, which proves end to end that naive goes red and hardened stays green, calls `run()`. That landed with engine E6 (`3f423e5`), so nothing here is blocked.
 
-**Status (2026-10-03):** decision P is approved (`story_plan`). C1–C5 are in progress on branch `scenarios`.
+**Status (2026-10-03):** decision P is approved (`story_plan`). C1–C5 are done on branch `scenarios`. Every story-table prediction below held in C4's end-to-end tests.
 
 ## The principle behind most decisions below
 **A scenario's baseline is clean, and every red comes from a fault.** Under an empty plan, both handlers pass every invariant on every scenario. Each scenario's bug comes from a small explicit fault plan, its story plan. That way the UI can show which fault broke what, the shrinker has something to work on, and it matches V1's definition: "inject a fault, watch it break the naive handler".

@@ -196,7 +196,9 @@ enum FaultOp {
 type FaultPlan = Vec<FaultOp>; // must survive being encoded into a replay URL and fed through the shrinker
 
 // sim-scenarios/src/lib.rs
-struct Scenario { id: &'static str, name: &'static str, description: &'static str, initial_ledger: Vec<(String, i64)>, workload: Vec<SimEvent> }
+struct Scenario { id: &'static str, name: &'static str, description: &'static str, initial_ledger: Vec<(String, i64)>, workload: Vec<SimEvent>, story_plan: FaultPlan }
+// The workload alone runs clean under both handlers; story_plan is the small fault plan that shows the
+// scenario's bug (specs/scenarios-plan.md, decision P). `id` is frozen: replay links store it.
 
 // sim-core/src/handlers/mod.rs
 trait EventHandler {
@@ -289,7 +291,7 @@ sim-core/src/
                   owned by the engine track (specs/v1-backend-task-split.md).
 
 sim-scenarios/src/
-  lib.rs                      Scenario struct
+  lib.rs                      Scenario struct, scenarios() registry, find(id)
   scenario1_retry.rs           charge retried after timeout
   scenario2_refund_order.rs    refund event arrives before capture
   scenario3_late_return.rs     ACH return arrives after settlement (pulled into V1, decisions-log.md D2)

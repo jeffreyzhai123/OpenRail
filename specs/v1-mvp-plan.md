@@ -16,7 +16,7 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 | 6 | Replay-by-seed links (basic URL encoding) | ❌ No `encode_run` / `decode_run` | ❌ |
 | 7 | Shrinker, single-pass greedy | ❌ `shrink.rs` is empty | ❌ |
 | 8 | Sweep harness (naive vs hardened failure rate) | ❌ | ❌ |
-| 9 | 2–3 playable scenarios | ❌ `sim-scenarios` is the `add()` template and doesn't even depend on `sim-core` | ❌ (S1a) |
+| 9 | 2–3 playable scenarios | ✅ Done: `charge-retry`, `refund-before-capture`, `late-ach-return`, each with a story plan, tested end to end through `run()` | ✅ `scenarios-plan.md` |
 | 10 | Minimal UI: timeline, balances, invariants, Run/Shrink/Share | ❌ Step 0 scaffold only (a header in `App.tsx`) | ✅ `frontend-plan.md` (steps 1–8 open) |
 | 11 | Deployed + smoke-tested against the real backend | ❌ No host chosen, no Dockerfile or config | ❌ |
 | — | `sim-api` (Axum routes the UI calls) | ❌ `main.rs` is hello-world, and there are no deps (axum, tokio, serde) | ❌ (its contract lives in `frontend-plan.md`) |
@@ -27,7 +27,7 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 3. **Seeds do nothing until fault generation exists** (A-spec deviation 5). Until then, every seed gives the same run, so **the sweep is meaningless** and replay-by-seed is trivial. Seed → plan generation is on the critical path, not a polish item.
 
 ## Missing specs, and the decisions each one must make
-**S1a: scenarios** (`sim-scenarios`). Doesn't need the handlers.
+**S1a: scenarios** (`sim-scenarios`) → done, see `scenarios-plan.md`. Each scenario carries a `story_plan` (decision P).
 - Scenario 1 (charge retried after timeout), scenario 2 (refund before capture), and scenario 3 (ACH return after settlement — pulled into V1 per D2), as `Scenario { id, name, description, initial_ledger, workload }`. Openings must sum to zero (`Ledger::open`). Event ids are unique (`apply_fault_plan` targets them). Event times are simulated milliseconds (engine decision T), written with named constants such as `MS_PER_DAY`. Scenario 3 additionally needs `Batched`/`Settled` `AchEvent`s added to `rails/ach.rs` (today it only has `Returned`).
 - `sim-scenarios` needs a `sim-core` dependency and a `scenarios()` registry, which sim-api's `GET /scenarios` uses (frontend ask #2).
 - Each scenario's "naive fails, hardened passes" test waits for S1b. D2 and D3 are resolved (see Decisions below).
