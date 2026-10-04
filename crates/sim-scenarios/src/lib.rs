@@ -4,6 +4,7 @@
 //! (specs/scenarios-plan.md, decision P).
 
 mod scenario1_retry;
+mod scenario2_refund_order;
 
 use sim_core::event::{EventId, EventKind, SimEvent};
 use sim_core::fault::FaultPlan;
@@ -33,7 +34,10 @@ pub struct Scenario {
 /// Every scenario, in the order the UI lists them. Built fresh on each call,
 /// so there's no global state.
 pub fn scenarios() -> Vec<Scenario> {
-    vec![scenario1_retry::scenario()]
+    vec![
+        scenario1_retry::scenario(),
+        scenario2_refund_order::scenario(),
+    ]
 }
 
 pub fn find(id: &str) -> Option<Scenario> {
@@ -72,7 +76,7 @@ mod tests {
     #[test]
     fn ids_are_frozen_and_listed_in_order() {
         let ids: Vec<&str> = scenarios().iter().map(|scenario| scenario.id).collect();
-        assert_eq!(ids, ["charge-retry"]);
+        assert_eq!(ids, ["charge-retry", "refund-before-capture"]);
     }
 
     #[test]
