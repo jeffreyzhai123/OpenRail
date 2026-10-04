@@ -9,7 +9,7 @@ README §3 V1 needs the core loop reachable from a browser: run a scenario, shar
 
 This is S4 in `v1-mvp-plan.md`, and Person A's track in `v1-backend-task-split.md`. The HTTP contract is already written down in `frontend-plan.md` ("API contract v1"), and the frontend is being built against it.
 
-**Status (2026-10-03):** decisions V, B and G are approved. API1 is in progress on branch `sim-api`.
+**Status (2026-10-03):** decisions V, B and G are approved. API1 is done on branch `sim-api`; API2 is next.
 
 ## The principle behind most decisions below
 **sim-api is a thin, stateless, deterministic shell.** Every endpoint is a pure function of its request: it looks up the scenario, calls sim-core, and maps the result or error to the contract. Nothing is stored. So the same request always gets the same response bytes, which makes every endpoint safe to retry, POSTs included. The only async code in the workspace lives here (CLAUDE.md), and the simulation itself still runs synchronously.
@@ -89,9 +89,9 @@ Branch `sim-api`, one commit per piece. Each is done when its tests pass and `ca
 
 | Piece | What | Depends on |
 |---|---|---|
-| API1 | Skeleton: dependencies, lib + bin, router, error envelope, limits, timeout, CORS, graceful shutdown, `GET /health` | — |
+| API1 | Skeleton: dependencies, lib + bin, router, error envelope, CORS, config, graceful shutdown, `GET /health` | — |
 | API2 | Replay encoding (`encode.rs`), pure | Decisions V, B |
-| API3 | DTOs, `GET /scenarios`, `POST /run` | API1, API2 |
+| API3 | DTOs, `GET /scenarios`, `POST /run`, plus the body limit, request timeout and JSON-rejection mapping | API1, API2 |
 | API4 | `GET /replay/{encoded}` | API3 |
 | API5 | `POST /shrink` and `POST /sweep` | API3 |
 | API6 | Golden fixtures (frontend ask #7) | API3–API5, decision G |
@@ -103,24 +103,21 @@ Branch `sim-api`, one commit per piece. Each is done when its tests pass and `ca
 - **Dependencies:**
   - `axum`;
   - `tokio`, with the multi-threaded runtime, macros, networking and signals;
-  - `tower-http`, for CORS, timeout and body limit;
-  - `serde`, `serde_json`, `sim-core`, `sim-scenarios`;
+  - `tower-http`, for CORS;
+  - `serde` and `serde_json`;
   - dev: `tower` (for `oneshot`) and `http-body-util`.
 
-  `base64` comes in API2 if decision B is approved. No logging framework: 5xx causes go to stderr, which Fly captures.
-- **`lib.rs`** exposes `app() -> Router`. **`main.rs`** reads its config, binds `0.0.0.0:$PORT` (default 3000, the port the Vite dev proxy targets), and serves with graceful shutdown.
-- **Config, from the environment:**
-  - `PORT`;
-  - `ALLOWED_ORIGIN`, the static frontend's origin for CORS (frontend ask #6). When it's unset there's no CORS, which suits local development, where the Vite proxy makes requests same-origin.
-- Named constants: `MAX_BODY_BYTES`, `REQUEST_TIMEOUT`, `MAX_PLAN_FAULTS` and `MAX_REPLAY_LEN`.
-- **`error.rs`:** `ApiError { status, code, message }` implementing `IntoResponse`, plus a `From` impl for each sim-core error, following the table above.
+  `sim-core`, `sim-scenarios` and `base64` come with the pieces that use them. No logging framework: the startup line and 5xx causes go to stderr, which Fly captures.
+- **`lib.rs`** exposes `app(allowed_origin) -> Router` and `Config`. **`main.rs`** reads `PORT` and `ALLOWED_ORIGIN`, parses them with `Config::parse`, binds `0.0.0.0:$PORT`, and serves with graceful shutdown on Ctrl-C or SIGTERM.
+- **`config.rs`:** `PORT` defaults to 3000, the port the Vite dev proxy targets. `ALLOWED_ORIGIN` is the static frontend's single exact origin for CORS (frontend ask #6); an empty value or `*` is rejected. When it's unset there's no CORS, which suits local development, where the Vite proxy makes requests same-origin. A bad value fails at startup, before binding.
+- **`error.rs`:** `ApiError { status, code, message }` implementing `IntoResponse` as the envelope. The 404 and 405 fallbacks use it. The `From` impls for sim-core errors come with the routes that need them.
+- **Moved to API3:** the request timeout, the body limit and the JSON-rejection mapping only have something to act on once the first JSON compute route exists. Adding them here would be dead code.
 
 **Tests** drive `app()` with `oneshot`, with no network:
 - `GET /health` returns 200.
 - An unknown route gives a 404 envelope, and a wrong method a 405 envelope.
-- An oversized body gives a 413 envelope.
-- Malformed JSON gives a 400 envelope.
-- CORS headers appear only when `ALLOWED_ORIGIN` is configured.
+- CORS allows the configured origin only, and a preflight for a POST is answered.
+- `Config::parse`: defaults, valid values, and rejected ports and origins.
 
 ## API2: replay encoding (`encode.rs`)
 ```rust
@@ -143,6 +140,8 @@ pub enum DecodeError { Malformed, UnsupportedVersion(String), TooLong }
 - Bad base64, bad JSON and a missing prefix give `Malformed`, and an over-long string gives `TooLong`.
 
 ## API3: DTOs, `GET /scenarios`, `POST /run`
+**Moved here from API1:** `MAX_BODY_BYTES` (axum's `DefaultBodyLimit`), and a JSON extractor that maps every rejection to the envelope: 413 → `payload_too_large`, anything else → `bad_request`. Plus one helper that runs simulation work in `spawn_blocking` under `REQUEST_TIMEOUT`, answering `timeout` when it elapses and `internal` if the work panics.
+
 **DTOs** (`dto.rs`) serialize in the contract's field order:
 - `RunResponse { scenario_id, seed, handler, fault_plan, trace, opening, journal, ledger, invariants, trace_hash, replay }`, built from `RunResult`, the request and `encode_run`;
 - `ScenarioSummary { id, name, description, accounts, workload, story_plan }`, where `accounts` comes from `initial_ledger`'s names;
@@ -160,6 +159,7 @@ pub enum DecodeError { Malformed, UnsupportedVersion(String), TooLong }
 - `fault_plan: null` returns `generate_fault_plan(seed, workload)` as the effective plan.
 - The same request gives byte-identical responses.
 - Errors: `unknown_scenario`, `invalid_fault_plan`, `plan_too_long`, and `bad_request` for an unknown handler name or a negative seed.
+- Limits: an oversized body gives a 413 `payload_too_large` envelope, malformed JSON a 400 `bad_request` envelope, and work over `REQUEST_TIMEOUT` a 503 `timeout` envelope.
 
 ## API4: `GET /replay/{encoded}`
 Decode the link, then answer exactly as `POST /run` would for the decoded request.
@@ -202,7 +202,7 @@ With `UPDATE_FIXTURES=1`, the test rewrites the files instead. Without it, a mis
 
 ## Files
 - New:
-  - `crates/sim-api/src/{lib.rs, app.rs, error.rs, dto.rs, encode.rs}`;
+  - `crates/sim-api/src/{lib.rs, app.rs, config.rs, error.rs, dto.rs, encode.rs}`;
   - `crates/sim-api/src/routes/{mod.rs, scenarios.rs, run.rs, replay.rs, shrink.rs, sweep.rs}`;
   - `crates/sim-api/tests/*`;
   - `frontend/src/api/fixtures/*.json` (API6).
