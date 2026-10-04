@@ -74,7 +74,7 @@ pub fn transfer(from: &str, to: &str, amount: Money) -> Option<Vec<Posting>>; //
 | `post()` rejects accounts that `open()` didn't declare (`UnknownAccount`) | Creating accounts on the fly would let a typo like `"merhcant"` silently produce a new account. CLAUDE.md says fail fast. Scenarios declare zero-balance accounts up front. |
 | **`post()` is atomic:** compute every new balance into a staging `BTreeMap` with checked math first, and only then commit and append to the journal | If an overflow on the 2nd of 3 legs left the first leg applied, the ledger itself would be unbalanced, and that's exactly the kind of state it's supposed to make impossible. Staging also handles the same account appearing twice in one entry. |
 | Checks run in this order: empty, unknown account, unbalanced (sum computed with checked math), overflow | This reports the root cause first. An unbalanced entry is a handler bug, while overflow is an extreme-input problem. |
-| Negative balances allowed; no overdraft rule | Overdraft isn't one of the 6 invariants. Rejecting it would hide handler bugs, per the principle above. |
+| Negative balances allowed; no overdraft rule | Overdraft isn't one of the ledger invariants (README §6.4). Rejecting it would hide handler bugs, per the principle above. |
 | `debug_assert!` that the total is 0 at the end of `post()` | CLAUDE.md: assert the invariants the types can't encode. It costs nothing in release builds. |
 | A `transfer()` helper returns `None` if `amount` is 0 or negation overflows | Nearly every posting is two-legged, and A's simulator and B's tests would otherwise each write their own version. |
 | `snapshot()` clones `accounts` | `RunResult` needs an owned value, so the clone has a clear reason (CLAUDE.md ownership rule). |

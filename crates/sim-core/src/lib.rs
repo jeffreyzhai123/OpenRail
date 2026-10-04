@@ -1,7 +1,6 @@
 pub mod clock;
 pub mod event;
 pub mod fault;
-pub mod handler;
 pub mod handlers;
 pub mod invariants;
 pub mod ledger;
@@ -10,6 +9,7 @@ pub mod rails;
 pub mod rng;
 pub mod shrink;
 pub mod simulator;
+pub mod sweep;
 pub mod trace;
 
 #[cfg(test)]

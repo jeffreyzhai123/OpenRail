@@ -9,6 +9,17 @@ pub struct AchEntryId(pub u64);
 
 /// The README's linear ACH lifecycle. Pure: no clock, no ledger. Handlers
 /// decide what money moves on each transition.
+///
+/// Not separately invariant-checked in `invariants.rs`, and deliberately so:
+/// `Batched`/`Settled` move no money on their own, so the only way skipping
+/// this legality check could matter is an illegitimate posting — and any
+/// such posting is already caught by the rail-agnostic invariants
+/// (`refund_within_capture`, `single_entry_per_source_event`), regardless of
+/// which rail or sequencing bug produced it. What's left over —
+/// rail-protocol conformance, not ledger correctness — is an explicit
+/// non-goal (README §1: no compliance claims). Checking it here would also
+/// make `EntryKind` rail-aware, which it's deliberately not. Revisit only if
+/// the project's scope changes to make protocol conformance itself a goal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AchState {
     Initiated,
@@ -85,12 +96,21 @@ impl fmt::Display for AchReturnCode {
     }
 }
 
-/// ACH rail event vocabulary. V1 only has the terminal return event — the
-/// initiated/batched/settled transitions are driven by the scenario
-/// workload's timing rather than by their own `SimEvent`s; add variants here
-/// if that changes.
+/// ACH rail event vocabulary. `Initiated` is the only one that posts a
+/// capture-equivalent entry; `Returned` reverses it. `Batched`/`Settled` move
+/// no money (see `AchState`'s doc comment) and carry no amount.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AchEvent {
+    Initiated {
+        entry_id: AchEntryId,
+        amount: Money,
+    },
+    Batched {
+        entry_id: AchEntryId,
+    },
+    Settled {
+        entry_id: AchEntryId,
+    },
     Returned {
         entry_id: AchEntryId,
         code: AchReturnCode,

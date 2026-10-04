@@ -1,0 +1,469 @@
+:root {
+  --text: #3d3a44;
+  --text-muted: #6b6375;
+  --bg: #fff;
+  --surface: #f7f6f9;
+  --border: #e5e4e7;
+  --accent: #5b3bd6;
+  --pass: #1d7a46;
+  --fail: #b42318;
+
+  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, Consolas, monospace;
+
+  font: 15px/1.45 var(--sans);
+  color-scheme: light dark;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #e4e2e9;
+    --text-muted: #9ca3af;
+    --bg: #16171d;
+    --surface: #1f2028;
+    --border: #2e303a;
+    --accent: #a48bff;
+    --pass: #4ade80;
+    --fail: #f87171;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+}
+
+#root {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+h1 {
+  font-size: 22px;
+  margin: 0 0 4px;
+}
+
+p {
+  margin: 0;
+}
+
+code {
+  font-family: var(--mono);
+}
+
+h2 {
+  font-size: 16px;
+  margin: 0 0 8px;
+}
+
+h3 {
+  font-size: 13px;
+  margin: 0 0 4px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+input,
+select {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+input[aria-invalid='true'] {
+  border-color: var(--fail);
+}
+
+.app-header {
+  margin-bottom: 16px;
+}
+
+.app-header p,
+.hint,
+.placeholder {
+  color: var(--text-muted);
+}
+
+.error-banner {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--fail);
+  border-radius: 8px;
+  color: var(--fail);
+}
+
+.layout {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 900px) {
+  .layout {
+    grid-template-columns: 300px 1fr;
+    align-items: start;
+  }
+}
+
+.results,
+.trace {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+@media (min-width: 1100px) {
+  .trace {
+    grid-template-columns: 3fr 2fr;
+    align-items: start;
+  }
+}
+
+.panel {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  min-width: 0;
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 14px;
+  padding: 0;
+  border: 0;
+}
+
+.inputs {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.description {
+  margin-bottom: 14px;
+  font-size: 14px;
+}
+
+.seed-row {
+  display: flex;
+  gap: 8px;
+}
+
+.seed-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.handlers {
+  display: flex;
+  gap: 16px;
+}
+
+.handlers legend {
+  margin-bottom: 4px;
+}
+
+.invariants ul,
+.detail ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.fault-plan h3 .badge {
+  margin-left: 6px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.faults {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.faults li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.faults button {
+  padding: 2px 8px;
+  font-size: 13px;
+}
+
+.add-fault {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 0;
+}
+
+.add-fault legend {
+  padding: 0 4px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.add-fault label {
+  display: grid;
+  gap: 2px;
+  font-size: 14px;
+}
+
+.add-fault select,
+.add-fault input {
+  min-width: 0;
+}
+
+.add-fault button {
+  justify-self: start;
+}
+
+.resets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.invariants ul {
+  list-style: none;
+  padding: 0;
+}
+
+.invariants li {
+  padding: 4px 0;
+}
+
+.invariants .pass .status {
+  color: var(--pass);
+}
+
+.invariants .fail .status {
+  color: var(--fail);
+  font-weight: 600;
+}
+
+.message {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.steps {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.steps button {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  text-align: left;
+  background: var(--bg);
+}
+
+.steps button[aria-current='step'] {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.time {
+  min-width: 56px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.what {
+  flex: 1;
+}
+
+.badge {
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.posted {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.detail {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 4px 6px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+td {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+tr.changed td:last-child {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.share {
+  display: grid;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.share button {
+  justify-self: start;
+}
+
+.share-link {
+  width: 100%;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.replay-badge {
+  border-width: 2px;
+}
+
+.replay-badge.verified {
+  border-color: var(--pass);
+}
+
+.replay-badge.verified h2 {
+  color: var(--pass);
+}
+
+.replay-badge.mismatch {
+  border-color: var(--fail);
+}
+
+.replay-badge.mismatch h2 {
+  color: var(--fail);
+}
+
+.replay-badge dl {
+  display: grid;
+  gap: 2px;
+  margin: 8px 0 0;
+}
+
+.replay-badge dt {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.replay-badge dd {
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+}
+
+.invariants button.shrink {
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-size: 13px;
+}
+
+.shrink-view h2 code {
+  font-size: 15px;
+}
+
+.shrunk-faults {
+  margin: 10px 0;
+  padding-left: 22px;
+}
+
+.shrunk-faults li {
+  padding: 2px 0;
+}
+
+.shrunk-faults .mark {
+  display: inline-block;
+  min-width: 64px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.shrunk-faults .kept .mark {
+  color: var(--fail);
+  font-weight: 600;
+}
+
+.shrunk-faults .removed {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.shrink-view .actions {
+  margin-top: 10px;
+}

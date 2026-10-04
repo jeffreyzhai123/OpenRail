@@ -1,0 +1,190 @@
+{
+  "candidates_tried": 3,
+  "invariant": "single_entry_per_source_event",
+  "original": [
+    {
+      "Delay": {
+        "by": 36248,
+        "event_id": 1
+      }
+    },
+    {
+      "Reorder": {
+        "event_id": 2,
+        "window": 2
+      }
+    },
+    {
+      "Duplicate": {
+        "event_id": 3
+      }
+    }
+  ],
+  "run": {
+    "fault_plan": [
+      {
+        "Duplicate": {
+          "event_id": 3
+        }
+      }
+    ],
+    "handler": "naive",
+    "invariants": [
+      {
+        "message": null,
+        "name": "ledger_balanced",
+        "passed": true
+      },
+      {
+        "message": null,
+        "name": "money_conserved",
+        "passed": true
+      },
+      {
+        "message": null,
+        "name": "single_capture_per_intent",
+        "passed": true
+      },
+      {
+        "message": null,
+        "name": "refund_within_capture",
+        "passed": true
+      },
+      {
+        "message": "event 3 posted twice: entry #1 and entry #2",
+        "name": "single_entry_per_source_event",
+        "passed": false
+      }
+    ],
+    "journal": [
+      {
+        "intent": "charge-1",
+        "kind": "Capture",
+        "postings": [
+          {
+            "account": "external:card",
+            "delta": -5000
+          },
+          {
+            "account": "merchant",
+            "delta": 5000
+          }
+        ],
+        "source": 2
+      },
+      {
+        "intent": "charge-1",
+        "kind": "Refund",
+        "postings": [
+          {
+            "account": "merchant",
+            "delta": -1000
+          },
+          {
+            "account": "external:card",
+            "delta": 1000
+          }
+        ],
+        "source": 3
+      },
+      {
+        "intent": "charge-1",
+        "kind": "Refund",
+        "postings": [
+          {
+            "account": "merchant",
+            "delta": -1000
+          },
+          {
+            "account": "external:card",
+            "delta": 1000
+          }
+        ],
+        "source": 3
+      }
+    ],
+    "ledger": {
+      "accounts": {
+        "external:bank": 0,
+        "external:card": -3000,
+        "merchant": 3000
+      }
+    },
+    "opening": {
+      "external:bank": 0,
+      "external:card": 0,
+      "merchant": 0
+    },
+    "posted": [
+      0,
+      1,
+      1,
+      1
+    ],
+    "replay": "1.eyJzY2VuYXJpb19pZCI6ImNoYXJnZS1yZXRyeSIsInNlZWQiOjAsImhhbmRsZXIiOiJuYWl2ZSIsImZhdWx0X3BsYW4iOlt7IkR1cGxpY2F0ZSI6eyJldmVudF9pZCI6M319XX0",
+    "scenario_id": "charge-retry",
+    "seed": 0,
+    "trace": [
+      {
+        "id": 1,
+        "kind": {
+          "Card": {
+            "Authorized": {
+              "amount": 5000,
+              "charge_id": 1
+            }
+          }
+        },
+        "seq": 0,
+        "time": 0
+      },
+      {
+        "id": 2,
+        "kind": {
+          "Card": {
+            "Captured": {
+              "amount": 5000,
+              "charge_id": 1
+            }
+          }
+        },
+        "seq": 1,
+        "time": 2000
+      },
+      {
+        "id": 3,
+        "kind": {
+          "Card": {
+            "Refunded": {
+              "amount": 1000,
+              "charge_id": 1
+            }
+          }
+        },
+        "seq": 2,
+        "time": 3600000
+      },
+      {
+        "id": 3,
+        "kind": {
+          "Card": {
+            "Refunded": {
+              "amount": 1000,
+              "charge_id": 1
+            }
+          }
+        },
+        "seq": 3,
+        "time": 3630000
+      }
+    ],
+    "trace_hash": "e927942a390f649ea7c8ee91fea12e56291c3624c8e491edb2f91da67b8e5f7e"
+  },
+  "shrunk": [
+    {
+      "Duplicate": {
+        "event_id": 3
+      }
+    }
+  ]
+}

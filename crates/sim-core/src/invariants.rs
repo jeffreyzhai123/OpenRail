@@ -1,10 +1,11 @@
-//! The six ledger invariants (README §6.4), checked once at the end of a run
+//! The ledger invariants (README §6.4), checked once at the end of a run
 //! over the whole journal, so "always"/"never" rules still see history.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::event::EventId;
 use crate::ledger::{EntryKind, IntentId, Ledger};
 use crate::money::Money;
 
@@ -14,6 +15,7 @@ pub const LEDGER_BALANCED: &str = "ledger_balanced";
 pub const MONEY_CONSERVED: &str = "money_conserved";
 pub const SINGLE_CAPTURE_PER_INTENT: &str = "single_capture_per_intent";
 pub const REFUND_WITHIN_CAPTURE: &str = "refund_within_capture";
+pub const SINGLE_ENTRY_PER_SOURCE_EVENT: &str = "single_entry_per_source_event";
 // #5 and #6 need provider events, which don't exist yet. They are named here
 // but not run: a stub that always passes would be a fake result.
 pub const RECONCILES_WITH_PROVIDER: &str = "reconciles_with_provider";
@@ -58,11 +60,12 @@ pub trait InvariantCheck {
 }
 
 /// Fixed order, because `RunResult.invariants` is serialized and hashed.
-const CHECKS: [&dyn InvariantCheck; 4] = [
+const CHECKS: [&dyn InvariantCheck; 5] = [
     &LedgerBalanced,
     &MoneyConserved,
     &SingleCapturePerIntent,
     &RefundWithinCapture,
+    &SingleEntryPerSourceEvent,
 ];
 
 pub fn check_all(ctx: &InvariantContext<'_>) -> Vec<InvariantResult> {
@@ -253,6 +256,38 @@ impl InvariantCheck for RefundWithinCapture {
     }
 }
 
+/// #7: a redelivered webhook — same `EventId` as some earlier delivery —
+/// never produces a second ledger entry. Unlike `SingleCapturePerIntent`,
+/// this catches a duplicate of *any* entry kind, not just captures: a
+/// `Duplicate` fault's copy carries the original's `EventId`
+/// (fault-injector-plan.md), so "two entries, same source" is exactly a
+/// webhook-redelivery bug regardless of kind — e.g. a replayed *refund*
+/// webhook double-processed within the captured total, which neither
+/// `SingleCapturePerIntent` nor `RefundWithinCapture` would see.
+pub struct SingleEntryPerSourceEvent;
+
+impl InvariantCheck for SingleEntryPerSourceEvent {
+    fn name(&self) -> &'static str {
+        SINGLE_ENTRY_PER_SOURCE_EVENT
+    }
+
+    fn check(&self, ctx: &InvariantContext<'_>) -> InvariantResult {
+        let mut first_by_source: BTreeMap<EventId, usize> = BTreeMap::new();
+        for (index, entry) in ctx.ledger.journal().iter().enumerate() {
+            if let Some(first) = first_by_source.insert(entry.source, index) {
+                return InvariantResult::fail(
+                    self.name(),
+                    format!(
+                        "event {} posted twice: entry #{first} and entry #{index}",
+                        entry.source.0
+                    ),
+                );
+            }
+        }
+        InvariantResult::pass(self.name())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -330,7 +365,8 @@ mod tests {
                 LEDGER_BALANCED,
                 MONEY_CONSERVED,
                 SINGLE_CAPTURE_PER_INTENT,
-                REFUND_WITHIN_CAPTURE
+                REFUND_WITHIN_CAPTURE,
+                SINGLE_ENTRY_PER_SOURCE_EVENT,
             ]
         );
     }
@@ -428,5 +464,33 @@ mod tests {
         refund(&mut ledger, 3, "order-2", 2_000);
 
         assert!(!passed(&ledger, REFUND_WITHIN_CAPTURE));
+    }
+
+    #[test]
+    fn redelivered_refund_fails_only_single_entry_per_source() {
+        let mut ledger = open_ledger();
+        capture(&mut ledger, 1, "order-1", 5_000);
+        refund(&mut ledger, 2, "order-1", 1_000);
+        // Same event id as the refund above: a redelivered webhook, not a
+        // second refund. Still within the captured total either way, so
+        // REFUND_WITHIN_CAPTURE alone would miss this.
+        refund(&mut ledger, 2, "order-1", 1_000);
+
+        for result in check_all(&InvariantContext { ledger: &ledger }) {
+            assert_eq!(
+                result.passed,
+                result.name != SINGLE_ENTRY_PER_SOURCE_EVENT,
+                "{result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn entries_from_distinct_events_pass() {
+        let mut ledger = open_ledger();
+        capture(&mut ledger, 1, "order-1", 5_000);
+        refund(&mut ledger, 2, "order-1", 1_000);
+
+        assert!(passed(&ledger, SINGLE_ENTRY_PER_SOURCE_EVENT));
     }
 }

@@ -61,7 +61,7 @@ A working, deployed, deterministic simulator proving the core loop end to end: i
 - Replay-by-seed links (basic URL encoding)
 - Shrinker: **single-pass greedy** version only (try removing each fault once, keep if failure persists) — not full ddmin yet
 - Sweep harness (naive vs. hardened failure-rate chart)
-- 2–3 playable scenarios, minimal UI (timeline, balances, invariant panel, Run/Shrink/Share)
+- 3 playable scenarios — 2 card, 1 ACH (late return after settlement, `decisions-log.md` D2) — minimal UI (timeline, balances, invariant panel, Run/Shrink/Share)
 - Deployed and smoke-tested against the real backend
 
 ### V2 — Complete (Tier 0–2 hardened)
@@ -69,10 +69,10 @@ A working, deployed, deterministic simulator proving the core loop end to end: i
 Everything V1 rushed, done properly — no new architecture, just correctness and polish.
 
 **Features:**
-- Full property-based test coverage across all 6 invariants (§6.4)
+- Full property-based test coverage across all invariants (§6.4)
 - **10,000-seed determinism check in CI** — same seed must always produce an identical trace hash
 - Full recursive **ddmin shrinker** (§6.3), replacing the greedy V1 version, with honest real-number reporting (no placeholder ratios)
-- Third scenario, ACH details re-verified against Nacha documentation
+- ACH details re-verified against Nacha documentation (scenario 3 itself ships in V1, `decisions-log.md` D2)
 - Scenario gallery as real linkable pages; self-explaining failure pages (what broke, why, in 1–2 lines, no narration required)
 - CLI wrapper for running sweeps outside the browser
 - CI: lint, test, determinism check, deploy on merge
@@ -149,50 +149,89 @@ Real concurrency still has a place — strictly as an addition on top of the det
 ```rust
 // sim-core/src/event.rs
 struct EventId(u64);
-struct ChargeId(u64);
-struct AchEntryId(u64);
 
 // Pure business-event taxonomy — what happened. Delivery (e.g. webhook vs.
 // polling) is orthogonal; every SimEvent is a webhook delivery today, so
 // there is no Webhook variant. A second transport becomes a `delivery:
 // DeliveryKind` field on SimEvent later, not another EventKind variant.
-enum EventKind {
-    ChargeAuthorized { charge_id: ChargeId, amount: Money },
-    ChargeCaptured { charge_id: ChargeId, amount: Money },
-    Refund { charge_id: ChargeId, amount: Money },
-    AchReturn { entry_id: AchEntryId, code: AchReturnCode, amount: Money },
+// One variant per payment rail: each rail owns its own event vocabulary under
+// sim-core/src/rails/, so adding a rail (e.g. RTP) is an additive variant.
+enum EventKind { Card(CardEvent), Ach(AchEvent) }
+
+struct SimEvent { id: EventId, time: u64, seq: u64, kind: EventKind } // time is simulated ms
+// EventQueue ordered strictly on (time, seq) — never on event contents
+
+// sim-core/src/rails/card.rs
+struct ChargeId(u64);
+enum CardEvent {
+    Authorized { charge_id: ChargeId, amount: Money },
+    Captured { charge_id: ChargeId, amount: Money },
+    Refunded { charge_id: ChargeId, amount: Money },
 }
 
-struct SimEvent { id: EventId, time: u64, seq: u64, kind: EventKind }
-// EventQueue ordered strictly on (time, seq) — never on event contents
+// sim-core/src/rails/ach.rs
+struct AchEntryId(u64);
+enum AchReturnCode { R01, R02, R03, R04, Other(String) } // revisit against NACHA docs in V2
+// Batched/Settled move no money and aren't separately invariant-checked (see
+// the doc comment on AchState): any illegitimate Returned they could lead to
+// is already caught by refund_within_capture and single_entry_per_source_event.
+enum AchEvent {
+    Batched { entry_id: AchEntryId },
+    Settled { entry_id: AchEntryId },
+    Returned { entry_id: AchEntryId, code: AchReturnCode, amount: Money },
+}
 
 // sim-core/src/money.rs
 struct Money(i64); // cents. Checked add/sub. No From<f64>, ever.
 
-// sim-core/src/ach.rs
-enum AchReturnCode { R01, R02, R03, R04, Other(String) } // revisit against NACHA docs in V2
-
-// sim-core/src/fault.rs
+// sim-core/src/fault.rs — what each op does is the replay contract, specified in specs/fault-injector-plan.md
 #[derive(Serialize, Deserialize)]
 enum FaultOp {
-    Duplicate { event_id: EventId },
-    Reorder { window: usize },
+    Duplicate { event_id: EventId },              // same EventId, redelivered 30 s later
+    Reorder { event_id: EventId, window: usize }, // the window of deliveries starting at event_id arrives reversed
     Delay { event_id: EventId, by: u64 },
     Drop { event_id: EventId },
-    CrashRestart { at: u64 },
+    CrashRestart { at: u64 },                     // the handler is rebuilt; the ledger survives
 }
 type FaultPlan = Vec<FaultOp>; // must survive being encoded into a replay URL and fed through the shrinker
 
 // sim-scenarios/src/lib.rs
-struct Scenario { id: &'static str, name: &'static str, description: &'static str, initial_ledger: Vec<(String, i64)>, workload: Vec<SimEvent> }
+struct Scenario { id: &'static str, name: &'static str, description: &'static str, initial_ledger: Vec<(String, i64)>, workload: Vec<SimEvent>, story_plan: FaultPlan }
+// The workload alone runs clean under both handlers; story_plan is the small fault plan that shows the
+// scenario's bug (specs/scenarios-plan.md, decision P). `id` is frozen: replay links store it.
+
+// sim-core/src/handlers/mod.rs
+trait EventHandler {
+    // Journal entries this event produces; run() is the only caller of post().
+    fn handle(&mut self, event: &SimEvent, ledger: &Ledger) -> Vec<JournalEntry>;
+}
+// Which handler a run uses, as sim-api and replay links name it.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum HandlerKind { Naive, Hardened }
+impl HandlerKind { fn build(self) -> Box<dyn EventHandler> } // callers pass &|| kind.build() to run()
 
 // sim-core/src/simulator.rs — the main entrypoint everything else calls
-struct RunResult { trace: Vec<SimEvent>, ledger: LedgerSnapshot, invariants: Vec<InvariantResult>, trace_hash: String }
+struct RunResult {
+    trace: Vec<SimEvent>,
+    posted: Vec<usize>,                // aligned with trace: the journal entries each delivered event posted
+    opening: BTreeMap<String, Money>, // run() consumes the Ledger, so nothing after it can recover these otherwise
+    journal: Vec<JournalEntry>,
+    fault_plan: FaultPlan,             // the effective plan: the input if explicit, or generated from the seed if None
+    ledger: LedgerSnapshot,
+    invariants: Vec<InvariantResult>,
+    trace_hash: String,
+}
 // Takes initial_ledger/workload directly rather than &Scenario: Scenario is
 // defined in sim-scenarios, which depends on sim-core (§2) — not the other
 // way around, so sim-core can't name sim-scenarios's types. Callers in
 // sim-scenarios/sim-api destructure a Scenario before calling run().
-fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u64, fault_plan: Option<&FaultPlan>) -> RunResult;
+// The seed is a u32: mulberry32's whole state, and safe as a JS number.
+// `new_handler` is a factory so a CrashRestart fault can rebuild the handler
+// mid-run. Invalid input (an unbalanced opening, a bad fault plan) is an Err.
+// fault_plan: None means generate one from the seed; Some(plan) replays it exactly.
+fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u32, fault_plan: Option<&FaultPlan>,
+       new_handler: &dyn Fn() -> Box<dyn EventHandler>) -> Result<RunResult, SimError>;
 ```
 
 `InvariantResult` needs a name/identity, not just pass/fail — the shrinker's stopping condition is "the *same named* invariant still fails," not just "something failed."
@@ -200,8 +239,8 @@ fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u64, fault
 ### 6.2 Replay-by-seed link design
 
 - A run is fully described by `scenario_id` + `seed` + an **explicit `FaultPlan`** (the seed generates an initial plan, but after that the plan is stored as data, so shrinking can remove individual faults without perturbing unrelated randomness).
-- Encoding: `encode_run(scenario_id, seed, fault_plan) -> String` — JSON → compress → base64url, held in the URL fragment (no backend storage needed, given the stateless API design in §2).
-- Each run carries a **trace hash**; a replay recomputes it and shows a "verified identical" badge, or flags a determinism break.
+- Encoding: `encode_run(scenario_id, seed, handler, fault_plan)` → `1.` + base64url(JSON), held in the URL fragment (no backend storage needed, given the stateless API design in §2). The version prefix sits outside the payload, so V2 can compress the JSON and still be told apart; V1 doesn't compress and caps plans at 100 faults instead (specs/sim-api-plan.md).
+- Each run carries a **trace hash** over the delivered events *and* the ledger journal, so a match means the same money movements too; a replay recomputes it and shows a "verified identical" badge, or flags a determinism break.
 - Version the encoding scheme so old links keep working, or warn clearly when they can't.
 - Known risk: long fault plans make long URLs — use compression, a short-plan cap, and a file-export fallback if needed.
 
@@ -219,7 +258,7 @@ fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u64, fault
 
 **Honest limits:** ddmin guarantees **1-minimal** (removing any one remaining fault makes the test pass), not globally minimal. Each candidate is a full re-run — cap candidate runs (~500) and show progress in the UI. Removing one event can change downstream behavior, which is exactly why the fault plan is explicit data rather than re-derived from the seed each time.
 
-### 6.4 The six ledger invariants
+### 6.4 The ledger invariants
 
 1. The ledger always balances (sum of entries is zero)
 2. No money is created or destroyed by a fault
@@ -227,42 +266,61 @@ fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u64, fault
 4. Refunds never exceed captured amount
 5. After reconciliation, ledger state converges with the provider's final state
 6. No ledger entry exists without a corresponding provider event
+7. No two ledger entries share the same source event (redelivery idempotency, any entry kind — not just captures; closes a gap #3 alone misses, e.g. a replayed *refund* webhook)
 
 ### 6.5 File-by-file map
 
 ```
 sim-core/src/
-  clock.rs        VirtualClock: now(), advance_to(t)
-  rng.rs          seeded PRNG (hand-rolled, mulberry32-style)
+  clock.rs        VirtualClock: now(), advance_to(t), in simulated ms
+  rng.rs          seeded PRNG (hand-rolled mulberry32, u32 seed)
   money.rs        Money(i64) newtype, checked arithmetic
   event.rs        SimEvent, EventQueue (BinaryHeap ordered on (time, seq))
   ledger.rs       Ledger { accounts: BTreeMap<String, Money> }, post() rejects unbalanced entries
                   (BTreeMap, not HashMap — iteration order must be deterministic for the trace hash)
-  invariants.rs   InvariantCheck trait; the 6 invariants in §6.4
-  ach.rs          AchState enum + transition()
-  handler.rs      EventHandler trait
-  handlers/naive.rs, handlers/hardened.rs
-  fault.rs        FaultOp, FaultPlan, apply_fault_plan()
-  trace.rs        hash_trace() — canonical JSON then stable hash
-  simulator.rs    Simulation::run(), Simulation::sweep()
-  shrink.rs       shrink() — ddmin, see §6.3
+  invariants.rs   InvariantCheck trait; the invariants in §6.4
+  rails/ach.rs    AchState enum + transition(), AchEvent
+  rails/card.rs   CardEvent (CardState deferred past V1)
+  rails/rtp.rs    stub, deferred past V3
+  handlers/mod.rs EventHandler trait, HandlerKind + build()
+  handlers/naive.rs     posts on every money event, no deduplication
+  handlers/hardened.rs  dedupes from ledger.journal() (survives CrashRestart); rejects a refund or
+                        ACH return before its capture (decisions-log.md D4, temporary)
+  fault.rs        FaultOp, FaultPlan, apply_fault_plan() (pure), generate_fault_plan(seed)
+  trace.rs        hash_run() — canonical JSON of (trace, journal), then blake3
+  simulator.rs    run()
+  shrink.rs       shrink_plan() (pure greedy pass), shrink_run() (on the same named invariant) — V1 single-pass greedy, see §6.3
+  sweep.rs        sweep(), count_failing_runs() — naive vs. hardened failure rate over a seed range.
+                  Its own file, not simulator.rs: keeps run()'s file solely
+                  owned by the engine track (specs/v1-backend-task-split.md).
 
 sim-scenarios/src/
-  lib.rs                      Scenario struct
+  lib.rs                      Scenario struct, scenarios() registry, find(id)
   scenario1_retry.rs           charge retried after timeout
   scenario2_refund_order.rs    refund event arrives before capture
-  scenario3_late_return.rs     ACH return arrives after settlement (V2+)
+  scenario3_late_return.rs     ACH return arrives after settlement (pulled into V1, decisions-log.md D2)
 
 sim-api/src/
-  main.rs            Axum app — the ONLY crate with Tokio
+  main.rs            binds $PORT, graceful shutdown — the ONLY crate with Tokio
+  lib.rs, app.rs      the router (testable without a network), CORS, body limit
+  config.rs           PORT and ALLOWED_ORIGIN, checked at startup
+  error.rs            the { error: { code, message } } envelope and its codes
+  dto.rs              request/response types, in the frontend contract's field order
+  routes/mod.rs       the shared JSON extractor and spawn_blocking + timeout helper
   routes/run.rs       POST /run
-  routes/replay.rs    GET /replay/:encoded
+  routes/scenarios.rs GET /scenarios
+  routes/replay.rs    GET /replay/{encoded}
   routes/shrink.rs    POST /shrink
   routes/sweep.rs     POST /sweep
   encode.rs           encode_run() / decode_run(), see §6.2
+  tests/fixtures.rs   golden fixtures for frontend/src/api/fixtures/ (UPDATE_FIXTURES=1)
 
-frontend/               React/TS, calls sim-api over HTTP
-  Timeline, BalancePanel, InvariantPanel, Controls, ShrinkView, SweepChart, Gallery
+frontend/               React/TS, calls sim-api over HTTP (specs/v1-frontend-tasks.md)
+  src/api/              types, decode, SimClient/HttpClient/FixtureClient, fixtures/
+  src/lib/              money, seed, balances, faultPlan, replayLink — pure, unit-tested
+  src/state/            reducer
+  src/components/       Controls, FaultPlanEditor, Timeline, BalancePanel, InvariantPanel,
+                        ReplayBadge, ErrorBanner, ShrinkView, SweepChart
 ```
 
 ### 6.6 Concurrency design summary (see §5 for full rationale)
