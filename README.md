@@ -149,37 +149,42 @@ Real concurrency still has a place — strictly as an addition on top of the det
 ```rust
 // sim-core/src/event.rs
 struct EventId(u64);
-struct ChargeId(u64);
-struct AchEntryId(u64);
 
 // Pure business-event taxonomy — what happened. Delivery (e.g. webhook vs.
 // polling) is orthogonal; every SimEvent is a webhook delivery today, so
 // there is no Webhook variant. A second transport becomes a `delivery:
 // DeliveryKind` field on SimEvent later, not another EventKind variant.
-enum EventKind {
-    ChargeAuthorized { charge_id: ChargeId, amount: Money },
-    ChargeCaptured { charge_id: ChargeId, amount: Money },
-    Refund { charge_id: ChargeId, amount: Money },
-    AchReturn { entry_id: AchEntryId, code: AchReturnCode, amount: Money },
+// One variant per payment rail: each rail owns its own event vocabulary under
+// sim-core/src/rails/, so adding a rail (e.g. RTP) is an additive variant.
+enum EventKind { Card(CardEvent), Ach(AchEvent) }
+
+struct SimEvent { id: EventId, time: u64, seq: u64, kind: EventKind } // time is simulated ms
+// EventQueue ordered strictly on (time, seq) — never on event contents
+
+// sim-core/src/rails/card.rs
+struct ChargeId(u64);
+enum CardEvent {
+    Authorized { charge_id: ChargeId, amount: Money },
+    Captured { charge_id: ChargeId, amount: Money },
+    Refunded { charge_id: ChargeId, amount: Money },
 }
 
-struct SimEvent { id: EventId, time: u64, seq: u64, kind: EventKind }
-// EventQueue ordered strictly on (time, seq) — never on event contents
+// sim-core/src/rails/ach.rs
+struct AchEntryId(u64);
+enum AchReturnCode { R01, R02, R03, R04, Other(String) } // revisit against NACHA docs in V2
+enum AchEvent { Returned { entry_id: AchEntryId, code: AchReturnCode, amount: Money } }
 
 // sim-core/src/money.rs
 struct Money(i64); // cents. Checked add/sub. No From<f64>, ever.
 
-// sim-core/src/ach.rs
-enum AchReturnCode { R01, R02, R03, R04, Other(String) } // revisit against NACHA docs in V2
-
-// sim-core/src/fault.rs
+// sim-core/src/fault.rs — what each op does is the replay contract, specified in specs/fault-injector-plan.md
 #[derive(Serialize, Deserialize)]
 enum FaultOp {
-    Duplicate { event_id: EventId },
-    Reorder { window: usize },
+    Duplicate { event_id: EventId },              // same EventId, redelivered 30 s later
+    Reorder { event_id: EventId, window: usize }, // the window of deliveries starting at event_id arrives reversed
     Delay { event_id: EventId, by: u64 },
     Drop { event_id: EventId },
-    CrashRestart { at: u64 },
+    CrashRestart { at: u64 },                     // the handler is rebuilt; the ledger survives
 }
 type FaultPlan = Vec<FaultOp>; // must survive being encoded into a replay URL and fed through the shrinker
 
@@ -192,7 +197,11 @@ struct RunResult { trace: Vec<SimEvent>, ledger: LedgerSnapshot, invariants: Vec
 // defined in sim-scenarios, which depends on sim-core (§2) — not the other
 // way around, so sim-core can't name sim-scenarios's types. Callers in
 // sim-scenarios/sim-api destructure a Scenario before calling run().
-fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u64, fault_plan: Option<&FaultPlan>) -> RunResult;
+// The seed is a u32: mulberry32's whole state, and safe as a JS number.
+// `new_handler` is a factory so a CrashRestart fault can rebuild the handler
+// mid-run. Invalid input (an unbalanced opening, a bad fault plan) is an Err.
+fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u32, fault_plan: Option<&FaultPlan>,
+       new_handler: &dyn Fn() -> Box<dyn EventHandler>) -> Result<RunResult, SimError>;
 ```
 
 `InvariantResult` needs a name/identity, not just pass/fail — the shrinker's stopping condition is "the *same named* invariant still fails," not just "something failed."
@@ -201,7 +210,7 @@ fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u64, fault
 
 - A run is fully described by `scenario_id` + `seed` + an **explicit `FaultPlan`** (the seed generates an initial plan, but after that the plan is stored as data, so shrinking can remove individual faults without perturbing unrelated randomness).
 - Encoding: `encode_run(scenario_id, seed, fault_plan) -> String` — JSON → compress → base64url, held in the URL fragment (no backend storage needed, given the stateless API design in §2).
-- Each run carries a **trace hash**; a replay recomputes it and shows a "verified identical" badge, or flags a determinism break.
+- Each run carries a **trace hash** over the delivered events *and* the ledger journal, so a match means the same money movements too; a replay recomputes it and shows a "verified identical" badge, or flags a determinism break.
 - Version the encoding scheme so old links keep working, or warn clearly when they can't.
 - Known risk: long fault plans make long URLs — use compression, a short-plan cap, and a file-export fallback if needed.
 
@@ -232,8 +241,8 @@ fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u64, fault
 
 ```
 sim-core/src/
-  clock.rs        VirtualClock: now(), advance_to(t)
-  rng.rs          seeded PRNG (hand-rolled, mulberry32-style)
+  clock.rs        VirtualClock: now(), advance_to(t), in simulated ms
+  rng.rs          seeded PRNG (hand-rolled mulberry32, u32 seed)
   money.rs        Money(i64) newtype, checked arithmetic
   event.rs        SimEvent, EventQueue (BinaryHeap ordered on (time, seq))
   ledger.rs       Ledger { accounts: BTreeMap<String, Money> }, post() rejects unbalanced entries
@@ -244,9 +253,9 @@ sim-core/src/
   rails/rtp.rs    stub, deferred past V3
   handlers/mod.rs EventHandler trait
   handlers/naive.rs, handlers/hardened.rs
-  fault.rs        FaultOp, FaultPlan, apply_fault_plan()
-  trace.rs        hash_trace() — canonical JSON then stable hash
-  simulator.rs    Simulation::run(), Simulation::sweep()
+  fault.rs        FaultOp, FaultPlan, apply_fault_plan() (pure), generate_fault_plan(seed)
+  trace.rs        hash_run() — canonical JSON of (trace, journal), then blake3
+  simulator.rs    run(), sweep()
   shrink.rs       shrink() — ddmin, see §6.3
 
 sim-scenarios/src/

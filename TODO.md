@@ -1,17 +1,21 @@
 ## Today: 2026-09-30, sim-core foundation (V1 step 1)
 
+> Current status lives in `specs/` (each plan has a Status section). Boxes below are ticked as their work merges.
+
 ### Step 0: both partners, together (~15 min, before splitting)
-- [ ] Remove the `add()` stubs from `sim-core/src/lib.rs` and declare the modules below in `lib.rs`.
-- [ ] Add deps to `sim-core`: `serde` (derive), `serde_json`, `blake3`; dev-dep `proptest`.
-- [ ] Agree on the shared types (README §6.1) and commit them as stubs so both sides compile:
+- [x] Remove the `add()` stubs from `sim-core/src/lib.rs` and declare the modules below in `lib.rs`.
+- [x] Add deps to `sim-core`: `serde` (derive), `serde_json`, `blake3`; dev-dep `proptest`.
+- [x] Agree on the shared types (README §6.1) and commit them as stubs so both sides compile:
       `EventId`, `SimEvent`, `EventKind`, `InvariantResult { name, passed, message }`, `LedgerSnapshot`.
-- [ ] Merge order: B's `money.rs` lands first, since A's `simulator.rs` consumes `Ledger`/`InvariantResult`.
+- [x] Merge order: B's `money.rs` lands first, since A's `simulator.rs` consumes `Ledger`/`InvariantResult`.
 
 ### Partner A: deterministic engine
-- [ ] `rng.rs`: seeded PRNG from a `u64` seed (define how the seed folds into the 32-bit state); `next_u32`, `next_range`, `shuffle`. Test: same seed gives an identical sequence, and different seeds diverge.
-- [ ] `clock.rs`: `VirtualClock` with `now()` and `advance_to(t)`. Advancing backwards panics or returns an error.
+- [x] `rng.rs`: seeded PRNG from a `u64` seed (define how the seed folds into the 32-bit state); `next_u32`, `next_range`, `shuffle`. Test: same seed gives an identical sequence, and different seeds diverge.
+      - Landed with a `u32` seed and no fold (`specs/deterministic-engine-plan.md` decision W).
+- [x] `clock.rs`: `VirtualClock` with `now()` and `advance_to(t)`. Advancing backwards panics or returns an error.
 - [ ] `event.rs`: `SimEvent`, `EventQueue` (BinaryHeap, min-ordered on `(time, seq)`, auto-incrementing `seq`). Test: tie-break by insertion order; proptest that pops come out in non-decreasing `(time, seq)`.
-- [ ] `trace.rs`: `hash_trace(&[SimEvent]) -> String`, canonical JSON then blake3. Test: stable across runs, and it changes when any event changes.
+- [x] `trace.rs`: `hash_trace(&[SimEvent]) -> String`, canonical JSON then blake3. Test: stable across runs, and it changes when any event changes.
+      - Landed as `hash_run(trace, journal)`, covering the journal too (decision H).
 - [ ] `simulator.rs`: `RunResult` and a stub `run(scenario, seed, fault_plan)` that drains the queue, advances the clock, posts to the ledger, runs invariants, and returns the trace hash. Use a hard-coded in-test workload (the scenarios crate is out of scope today).
 - [ ] Determinism smoke test: `run()` with the same seed ×100 gives an identical `trace_hash`.
 
