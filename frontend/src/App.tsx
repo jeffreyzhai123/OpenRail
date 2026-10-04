@@ -68,9 +68,7 @@ function App({ client }: { client: SimClient }) {
           seed={state.seed}
           handler={state.handler}
           plan={state.plan}
-          generated={
-            state.plan === null ? (run?.response.fault_plan ?? null) : null
-          }
+          seedPlan={state.seedPlan}
           running={state.status === 'running'}
           canRun={request !== null && state.status === 'ready'}
           onScenario={(id) => dispatch({ type: 'scenarioPicked', id })}
@@ -79,6 +77,8 @@ function App({ client }: { client: SimClient }) {
             dispatch({ type: 'seedEdited', text: String(randomSeed()) })
           }
           onHandler={(handler) => dispatch({ type: 'handlerPicked', handler })}
+          onPlanChange={(plan) => dispatch({ type: 'planEdited', plan })}
+          onPlanReset={(to) => dispatch({ type: 'planReset', to })}
           onRun={startRun}
         />
         <div className="results">

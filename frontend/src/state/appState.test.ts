@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import type { RunResponse, ScenarioSummary } from '../api/types'
+import type { FaultOp, RunResponse, ScenarioSummary } from '../api/types'
 import { balancesByStep } from '../lib/balances'
 import { fixture } from '../test/fixtures'
 import { initialState, reducer, runRequest, type AppState } from './appState'
@@ -106,5 +106,76 @@ describe('runs', () => {
     expect(failed.status).toBe('ready')
     expect(failed.error).toBeInstanceOf(Error)
     expect(reducer(failed, { type: 'runStarted' }).error).toBeNull()
+  })
+})
+
+describe('the fault plan', () => {
+  const generated: FaultOp[] = [{ Delay: { event_id: 1, by: 8_690 } }]
+
+  /** A finished run on seed 7's generated plan, which sim-api reports. */
+  function afterGeneratedRun(): AppState {
+    const state = reducer(loaded(), { type: 'seedEdited', text: '7' })
+    const response = {
+      ...(fixture('run-charge-retry-naive.json') as RunResponse),
+      fault_plan: generated,
+    }
+    return reducer(reducer(state, { type: 'runStarted' }), {
+      type: 'runSucceeded',
+      response,
+      balances: balancesByStep(response),
+    })
+  }
+
+  test('a run on the generated plan records it as the seed plan', () => {
+    const state = afterGeneratedRun()
+    expect(state.plan).toBeNull()
+    expect(state.seedPlan).toEqual(generated)
+  })
+
+  test('a run on an explicit plan records no seed plan', () => {
+    expect(withRun(loaded()).seedPlan).toBeNull()
+  })
+
+  test('a new seed or scenario forgets the seed plan; the handler keeps it', () => {
+    const state = afterGeneratedRun()
+    const reseeded = reducer(state, { type: 'seedEdited', text: '8' })
+    const moved = reducer(state, {
+      type: 'scenarioPicked',
+      id: scenarios()[1].id,
+    })
+    const handler = reducer(state, {
+      type: 'handlerPicked',
+      handler: 'hardened',
+    })
+    expect(reseeded.seedPlan).toBeNull()
+    expect(moved.seedPlan).toBeNull()
+    expect(handler.seedPlan).toEqual(generated)
+  })
+
+  test('an edit becomes the explicit plan and clears the run', () => {
+    const edited = reducer(withRun(loaded()), { type: 'planEdited', plan: [] })
+    expect(edited.plan).toEqual([])
+    expect(edited.run).toBeNull()
+    expect(runRequest(edited)?.fault_plan).toEqual([])
+  })
+
+  test('reset to seed hands the plan back to sim-api', () => {
+    const state = reducer(withRun(loaded()), {
+      type: 'planReset',
+      to: 'seed',
+    })
+    expect(state.plan).toBeNull()
+    expect(state.run).toBeNull()
+  })
+
+  test('reset to story loads the scenario story plan', () => {
+    const edited = reducer(loaded(), { type: 'planEdited', plan: [] })
+    const state = reducer(edited, { type: 'planReset', to: 'story' })
+    expect(state.plan).toEqual(scenarios()[0].story_plan)
+  })
+
+  test('a reset to the plan already in use keeps the run', () => {
+    const state = withRun(loaded())
+    expect(reducer(state, { type: 'planReset', to: 'story' })).toBe(state)
   })
 })

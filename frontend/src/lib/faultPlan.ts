@@ -10,6 +10,7 @@ import {
   type SimEvent,
 } from '../api/types'
 import { formatDuration } from './time'
+import { parseWholeNumber } from './wholeNumber'
 
 export type FaultKind =
   'Duplicate' | 'Reorder' | 'Delay' | 'Drop' | 'CrashRestart'
@@ -83,6 +84,8 @@ function checkIndex(plan: readonly FaultOp[], index: number): void {
   }
 }
 
+const NOT_WHOLE = 'every number must be a whole number, 0 or more'
+
 /** What's wrong with an op the editor built, or `null` if sim-api will accept
  * it: its numbers must be non-negative whole numbers, and its target must be
  * one of the scenario's events. */
@@ -92,7 +95,7 @@ export function faultProblem(
 ): string | null {
   const numbers = fieldsOf(op)
   if (!numbers.every((value) => Number.isSafeInteger(value) && value >= 0)) {
-    return 'every number must be a whole number, 0 or more'
+    return NOT_WHOLE
   }
   const target = faultTarget(op)
   if (target !== null && !workload.some((event) => event.id === target)) {
@@ -127,4 +130,73 @@ export function plansEqual(
   b: readonly FaultOp[],
 ): boolean {
   return a.length === b.length && a.every((op, at) => sameFault(op, b[at]))
+}
+
+/** The add form's fields. Numbers stay as typed until the fault is built. */
+export interface FaultDraft {
+  kind: FaultKind
+  eventId: EventId
+  window: string
+  by: string
+  at: string
+}
+
+export type DraftResult =
+  { ok: true; op: FaultOp } | { ok: false; problem: string }
+
+/** The fault the add form describes, or what's wrong with it. */
+export function faultFromDraft(
+  draft: FaultDraft,
+  workload: readonly SimEvent[],
+): DraftResult {
+  const op = buildFault(draft)
+  if (op === null) return { ok: false, problem: NOT_WHOLE }
+  const problem = faultProblem(op, workload)
+  return problem === null ? { ok: true, op } : { ok: false, problem }
+}
+
+function buildFault({
+  kind,
+  eventId,
+  window,
+  by,
+  at,
+}: FaultDraft): FaultOp | null {
+  const event_id = eventId
+  switch (kind) {
+    case 'Duplicate':
+      return { Duplicate: { event_id } }
+    case 'Drop':
+      return { Drop: { event_id } }
+    case 'Reorder': {
+      const deliveries = parseWholeNumber(window)
+      return deliveries === null
+        ? null
+        : { Reorder: { event_id, window: deliveries } }
+    }
+    case 'Delay': {
+      const ms = parseWholeNumber(by)
+      return ms === null ? null : { Delay: { event_id, by: ms } }
+    }
+    case 'CrashRestart': {
+      const ms = parseWholeNumber(at)
+      return ms === null ? null : { CrashRestart: { at: ms } }
+    }
+  }
+}
+
+/** Where the plan the editor shows came from. `null` is the seed's plan,
+ * which sim-api generates; an explicit plan that matches neither the story
+ * nor the seed's known plan has been edited. */
+export type PlanOrigin = 'story' | 'seed' | 'edited'
+
+export function planOrigin(
+  plan: readonly FaultOp[] | null,
+  story: readonly FaultOp[],
+  seedPlan: readonly FaultOp[] | null,
+): PlanOrigin {
+  if (plan === null) return 'seed'
+  if (plansEqual(plan, story)) return 'story'
+  if (seedPlan !== null && plansEqual(plan, seedPlan)) return 'seed'
+  return 'edited'
 }

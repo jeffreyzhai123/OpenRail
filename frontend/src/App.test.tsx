@@ -3,11 +3,12 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, test } from 'vitest'
 import App from './App'
 import { ApiError, NetworkError, type SimClient } from './api/client'
-import type {
-  RunRequest,
-  RunResponse,
-  ScenarioSummary,
-  ShrinkResponse,
+import {
+  MAX_PLAN_FAULTS,
+  type RunRequest,
+  type RunResponse,
+  type ScenarioSummary,
+  type ShrinkResponse,
 } from './api/types'
 import { describeFault } from './lib/faultPlan'
 import { fixture } from './test/fixtures'
@@ -45,6 +46,22 @@ async function renderApp(overrides: Partial<SimClient> = {}) {
 async function run(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: 'Run' }))
   return screen.findByRole('heading', { name: /invariants/ })
+}
+
+/** The plan the editor shows, one description per fault. */
+function shownFaults(): string[] {
+  return screen
+    .queryAllByRole('button', { name: /^Remove: / })
+    .map((button) => button.getAttribute('aria-label')?.slice(8) ?? '')
+}
+
+async function editSeed(
+  user: ReturnType<typeof userEvent.setup>,
+  text: string,
+) {
+  const seed = screen.getByRole('textbox', { name: 'Seed' })
+  await user.clear(seed)
+  await user.type(seed, text)
 }
 
 function merchantBalance(): string {
@@ -113,16 +130,18 @@ describe('running', () => {
       screen.getByRole('combobox', { name: 'Scenario' }),
       screen.getByRole('textbox', { name: 'Seed' }),
       screen.getByRole('radio', { name: 'Hardened' }),
+      screen.getByRole('button', { name: 'Add fault' }),
+      screen.getByRole('button', { name: /^Remove: / }),
     ]
     // `:disabled`, not the property: the lock comes from the fieldset.
     const locked = () => inputs.map((input) => input.matches(':disabled'))
 
     await user.click(screen.getByRole('button', { name: 'Run' }))
-    expect(locked()).toEqual([true, true, true])
+    expect(locked()).toEqual([true, true, true, true, true])
 
     answer(fixture('run-charge-retry-naive.json') as RunResponse)
     await screen.findByRole('heading', { name: /invariants/ })
-    expect(locked()).toEqual([false, false, false])
+    expect(locked()).toEqual([false, false, false, false, false])
   })
 })
 
@@ -180,7 +199,7 @@ describe('inputs', () => {
     await user.clear(seed)
     await user.type(seed, '42')
     expect(
-      screen.getByText('Generated from seed 42 when you run.'),
+      screen.getByText(/Generated from seed 42 when you run/),
     ).toBeDefined()
 
     await run(user)
@@ -201,9 +220,8 @@ describe('inputs', () => {
     await user.type(seed, '42')
     await run(user)
 
-    expect(screen.getByText('Generated from seed 42:')).toBeDefined()
-    const faults = screen.getAllByRole('listitem').map((li) => li.textContent)
-    expect(faults).toEqual(expect.arrayContaining(original.map(describeFault)))
+    expect(screen.getByText('from seed 42')).toBeDefined()
+    expect(shownFaults()).toEqual(original.map(describeFault))
   })
 
   test("a seed that isn't a u32 can't run", async () => {
@@ -216,6 +234,156 @@ describe('inputs', () => {
       true,
     )
     expect(screen.getByText(/A seed is a whole number/)).toBeDefined()
+  })
+})
+
+describe('editing the fault plan', () => {
+  const story = () =>
+    (fixture('scenarios.json') as ScenarioSummary[])[0].story_plan
+
+  test('an added Duplicate goes out in the next run request', async () => {
+    const { user, requests } = await renderApp()
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Event' }),
+      '3',
+    )
+    await user.click(screen.getByRole('button', { name: 'Add fault' }))
+
+    expect(shownFaults()).toEqual([
+      'Redeliver event 2 30 s later',
+      'Redeliver event 3 30 s later',
+    ])
+    expect(screen.getByText('edited')).toBeDefined()
+    await run(user)
+    expect(requests[0].fault_plan).toEqual([
+      ...story(),
+      { Duplicate: { event_id: 3 } },
+    ])
+  })
+
+  test('each kind asks for its own fields, and previews the fault', async () => {
+    const { user, requests } = await renderApp()
+    const type = screen.getByRole('combobox', { name: 'Type' })
+
+    await user.selectOptions(type, 'CrashRestart')
+    expect(screen.queryByRole('combobox', { name: 'Event' })).toBeNull()
+    await user.clear(screen.getByRole('textbox', { name: 'At (ms)' }))
+    await user.type(screen.getByRole('textbox', { name: 'At (ms)' }), '2000')
+    expect(
+      screen.getByText('Adds: Crash and restart the handler at 2 s'),
+    ).toBeDefined()
+
+    await user.selectOptions(type, 'Reorder')
+    expect(
+      screen.getByRole('textbox', { name: 'Window (deliveries)' }),
+    ).toBeDefined()
+    await user.click(screen.getByRole('button', { name: 'Add fault' }))
+    await run(user)
+    expect(requests[0].fault_plan).toEqual([
+      ...story(),
+      { Reorder: { event_id: 1, window: 2 } },
+    ])
+  })
+
+  test("a number that isn't whole blocks Add, saying why", async () => {
+    const { user } = await renderApp()
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Type' }),
+      'Delay',
+    )
+    const by = screen.getByRole('textbox', { name: 'Delay by (ms)' })
+    await user.clear(by)
+    await user.type(by, '1.5')
+
+    expect(by.getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Add fault' })).toHaveProperty(
+      'disabled',
+      true,
+    )
+    expect(
+      screen.getByText(
+        "Can't add: every number must be a whole number, 0 or more.",
+      ),
+    ).toBeDefined()
+  })
+
+  test('removing the story fault runs with no faults', async () => {
+    const { user, requests } = await renderApp()
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Remove: Redeliver event 2 30 s later',
+      }),
+    )
+    expect(screen.getByText('No faults.')).toBeDefined()
+    await run(user)
+    expect(requests[0].fault_plan).toEqual([])
+  })
+
+  test('an edit clears the shown run, which the old plan produced', async () => {
+    const { user } = await renderApp()
+    await run(user)
+    await user.click(screen.getByRole('button', { name: /^Remove: / }))
+    expect(screen.queryByRole('heading', { name: /invariants/ })).toBeNull()
+  })
+
+  test('reset to story plan undoes edits', async () => {
+    const { user } = await renderApp()
+    const reset = screen.getByRole('button', { name: 'Reset to story plan' })
+    expect(reset).toHaveProperty('disabled', true)
+
+    await user.click(screen.getByRole('button', { name: /^Remove: / }))
+    await user.click(reset)
+    expect(shownFaults()).toEqual(['Redeliver event 2 30 s later'])
+    expect(screen.getByText('story plan')).toBeDefined()
+  })
+
+  test("a seed's plan is editable once a run has shown it", async () => {
+    const { original } = fixture('shrink.json') as ShrinkResponse
+    const { user, requests } = await renderApp({
+      run: async (request) => {
+        requests.push(request)
+        return {
+          ...(fixture('run-charge-retry-naive.json') as RunResponse),
+          fault_plan: request.fault_plan ?? original,
+        }
+      },
+    })
+    await editSeed(user, '42')
+    expect(screen.getByText(/Run once to edit it/)).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Add fault' })).toBeNull()
+
+    await run(user)
+    await user.click(screen.getAllByRole('button', { name: /^Remove: / })[0])
+    expect(screen.getByText('edited')).toBeDefined()
+    await run(user)
+    expect(requests[1].fault_plan).toEqual(original.slice(1))
+
+    await user.click(screen.getByRole('button', { name: 'Reset to seed plan' }))
+    expect(shownFaults()).toEqual(original.map(describeFault))
+    expect(screen.getByText('from seed 42')).toBeDefined()
+    await run(user)
+    expect(requests[2].fault_plan).toBeNull()
+  })
+
+  test('a full plan takes no more faults', async () => {
+    const full = Array.from({ length: MAX_PLAN_FAULTS }, () => ({
+      Drop: { event_id: 1 },
+    }))
+    const { user } = await renderApp({
+      run: async () => ({
+        ...(fixture('run-charge-retry-naive.json') as RunResponse),
+        fault_plan: full,
+      }),
+    })
+    await editSeed(user, '42')
+    await run(user)
+    expect(
+      screen.getByText(`A plan holds at most ${MAX_PLAN_FAULTS} faults.`),
+    ).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Add fault' })).toHaveProperty(
+      'disabled',
+      true,
+    )
   })
 })
 

@@ -1,6 +1,6 @@
 import type { FaultOp, Handler, ScenarioSummary } from '../api/types'
 import { MAX_SEED } from '../api/types'
-import { describeFault } from '../lib/faultPlan'
+import { FaultPlanEditor } from './FaultPlanEditor'
 
 interface ControlsProps {
   scenarios: ScenarioSummary[]
@@ -9,14 +9,16 @@ interface ControlsProps {
   seed: number | null
   handler: Handler
   plan: FaultOp[] | null
-  /** The plan sim-api generated for the shown run, when `plan` is null. */
-  generated: FaultOp[] | null
+  /** What sim-api generated for this scenario and seed, once a run showed it. */
+  seedPlan: FaultOp[] | null
   running: boolean
   canRun: boolean
   onScenario: (id: string) => void
   onSeed: (text: string) => void
   onRandomSeed: () => void
   onHandler: (handler: Handler) => void
+  onPlanChange: (plan: FaultOp[]) => void
+  onPlanReset: (to: 'story' | 'seed') => void
   onRun: () => void
 }
 
@@ -25,7 +27,7 @@ const HANDLERS: [Handler, string][] = [
   ['hardened', 'Hardened'],
 ]
 
-/** The run's inputs: scenario, seed, handler and the plan it will use. */
+/** The run's inputs: scenario, seed, handler and the fault plan. */
 export function Controls(props: ControlsProps) {
   const scenario = props.scenarios.find(({ id }) => id === props.scenarioId)
   return (
@@ -87,16 +89,21 @@ export function Controls(props: ControlsProps) {
             </label>
           ))}
         </fieldset>
-      </fieldset>
 
-      <div className="field">
-        <h3>Faults</h3>
-        <FaultList
-          plan={props.plan}
-          generated={props.generated}
-          seed={props.seed}
-        />
-      </div>
+        {scenario && (
+          <FaultPlanEditor
+            // A new scenario has new events, so the add form starts over.
+            key={scenario.id}
+            plan={props.plan}
+            seedPlan={props.seedPlan}
+            storyPlan={scenario.story_plan}
+            seed={props.seed}
+            workload={scenario.workload}
+            onChange={props.onPlanChange}
+            onReset={props.onPlanReset}
+          />
+        )}
+      </fieldset>
 
       <button
         type="button"
@@ -107,40 +114,5 @@ export function Controls(props: ControlsProps) {
         {props.running ? 'Running…' : 'Run'}
       </button>
     </section>
-  )
-}
-
-function FaultList({
-  plan,
-  generated,
-  seed,
-}: {
-  plan: FaultOp[] | null
-  generated: FaultOp[] | null
-  seed: number | null
-}) {
-  if (plan === null && generated === null) {
-    return (
-      <p className="hint">
-        {seed === null
-          ? 'Generated from the seed when you run.'
-          : `Generated from seed ${seed} when you run.`}
-      </p>
-    )
-  }
-  const shown = plan ?? generated ?? []
-  return (
-    <>
-      {plan === null && <p className="hint">Generated from seed {seed}:</p>}
-      {shown.length === 0 ? (
-        <p className="hint">No faults.</p>
-      ) : (
-        <ul className="faults">
-          {shown.map((op, index) => (
-            <li key={index}>{describeFault(op)}</li>
-          ))}
-        </ul>
-      )}
-    </>
   )
 }

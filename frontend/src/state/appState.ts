@@ -9,6 +9,7 @@ import type {
   ScenarioSummary,
 } from '../api/types'
 import type { Balances } from '../lib/balances'
+import { plansEqual } from '../lib/faultPlan'
 import { parseSeed } from '../lib/seed'
 
 export interface CompletedRun {
@@ -28,6 +29,9 @@ export interface AppState {
   handler: Handler
   /** `null` means sim-api generates a plan from the seed. */
   plan: FaultOp[] | null
+  /** The plan sim-api generated for this scenario and seed, once a run on
+   * the generated plan has shown it. The handler doesn't change it. */
+  seedPlan: FaultOp[] | null
   status: 'loading' | 'ready' | 'running'
   run: CompletedRun | null
   error: unknown
@@ -42,6 +46,8 @@ export type Action =
   | { type: 'runSucceeded'; response: RunResponse; balances: Balances[] }
   | { type: 'failed'; error: unknown }
   | { type: 'stepSelected'; step: number }
+  | { type: 'planEdited'; plan: FaultOp[] }
+  | { type: 'planReset'; to: 'story' | 'seed' }
 
 export const initialState: AppState = {
   scenarios: [],
@@ -50,6 +56,7 @@ export const initialState: AppState = {
   seed: 0,
   handler: 'naive',
   plan: null,
+  seedPlan: null,
   status: 'loading',
   run: null,
   error: null,
@@ -76,20 +83,23 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         scenarioId: scenario.id,
         plan: scenario.story_plan,
+        seedPlan: null,
         run: null,
         error: null,
       }
     }
     case 'seedEdited': {
       const seed = parseSeed(action.text)
+      if (seed === state.seed) return { ...state, seedText: action.text }
       // A different seed means a different generated plan, so an explicit
       // plan no longer applies.
       return {
         ...state,
         seedText: action.text,
         seed,
-        plan: seed === state.seed ? state.plan : null,
-        run: seed === state.seed ? state.run : null,
+        plan: null,
+        seedPlan: null,
+        run: null,
       }
     }
     case 'handlerPicked':
@@ -100,6 +110,10 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         status: 'ready',
+        // Inputs are locked while running, so a null plan is still this
+        // run's: the response carries what sim-api generated for it.
+        seedPlan:
+          state.plan === null ? action.response.fault_plan : state.seedPlan,
         run: {
           response: action.response,
           balances: action.balances,
@@ -114,7 +128,25 @@ export function reducer(state: AppState, action: Action): AppState {
       const step = Math.min(Math.max(action.step, 0), last)
       return { ...state, run: { ...state.run, step } }
     }
+    case 'planEdited':
+      return withPlan(state, action.plan)
+    case 'planReset': {
+      if (action.to === 'seed') return withPlan(state, null)
+      const scenario = state.scenarios.find(({ id }) => id === state.scenarioId)
+      return scenario ? withPlan(state, scenario.story_plan) : state
+    }
   }
+}
+
+/** A different plan clears the shown run, which the old plan produced. */
+function withPlan(state: AppState, plan: FaultOp[] | null): AppState {
+  if (samePlan(state.plan, plan)) return state
+  return { ...state, plan, run: null }
+}
+
+function samePlan(a: FaultOp[] | null, b: FaultOp[] | null): boolean {
+  if (a === null || b === null) return a === b
+  return plansEqual(a, b)
 }
 
 /** The request for the current inputs, or `null` if they can't run yet. */

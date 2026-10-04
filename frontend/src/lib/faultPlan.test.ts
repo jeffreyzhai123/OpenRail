@@ -9,12 +9,15 @@ import {
   addFault,
   canAddFault,
   describeFault,
+  faultFromDraft,
   faultKind,
   faultProblem,
   faultTarget,
+  planOrigin,
   plansEqual,
   removeFault,
   replaceFault,
+  type FaultDraft,
 } from './faultPlan'
 
 const duplicate: FaultOp = { Duplicate: { event_id: 2 } }
@@ -103,4 +106,71 @@ test('plans compare by meaning, not by object layout', () => {
   expect(
     plansEqual([{ Drop: { event_id: 4 } }], [{ Duplicate: { event_id: 4 } }]),
   ).toBe(false)
+})
+
+describe('the add form', () => {
+  const draft: FaultDraft = {
+    kind: 'Duplicate',
+    eventId: 2,
+    window: '2',
+    by: '45000',
+    at: '1500',
+  }
+
+  test.each<[FaultDraft['kind'], FaultOp]>([
+    ['Duplicate', { Duplicate: { event_id: 2 } }],
+    ['Reorder', { Reorder: { event_id: 2, window: 2 } }],
+    ['Delay', { Delay: { event_id: 2, by: 45_000 } }],
+    ['Drop', { Drop: { event_id: 2 } }],
+    ['CrashRestart', { CrashRestart: { at: 1_500 } }],
+  ])('a %s draft builds %j, using only its own fields', (kind, op) => {
+    expect(faultFromDraft({ ...draft, kind }, chargeRetry().workload)).toEqual({
+      ok: true,
+      op,
+    })
+  })
+
+  test.each<Partial<FaultDraft>>([
+    { kind: 'Delay', by: '1.5' },
+    { kind: 'Reorder', window: '' },
+    { kind: 'CrashRestart', at: '-1' },
+  ])('%j is not a whole number', (change) => {
+    expect(
+      faultFromDraft({ ...draft, ...change }, chargeRetry().workload),
+    ).toEqual({ ok: false, problem: expect.stringMatching(/whole number/) })
+  })
+
+  test("a field the kind doesn't use can hold anything", () => {
+    const result = faultFromDraft(
+      { ...draft, kind: 'Drop', by: 'not a number' },
+      chargeRetry().workload,
+    )
+    expect(result.ok).toBe(true)
+  })
+
+  test('an event the scenario lacks is a problem', () => {
+    expect(
+      faultFromDraft({ ...draft, eventId: 99 }, chargeRetry().workload),
+    ).toEqual({ ok: false, problem: "event 99 isn't in this scenario" })
+  })
+})
+
+describe('where a plan came from', () => {
+  const story: FaultOp[] = [duplicate]
+  const seedPlan: FaultOp[] = [delay, drop]
+
+  test.each<[FaultOp[] | null, FaultOp[] | null, string]>([
+    [null, null, 'seed'],
+    [null, seedPlan, 'seed'],
+    [[duplicate], null, 'story'],
+    [[delay, drop], seedPlan, 'seed'],
+    [[delay, drop], null, 'edited'],
+    [[], seedPlan, 'edited'],
+  ])('plan %j with seed plan %j is %s', (plan, seed, origin) => {
+    expect(planOrigin(plan, story, seed)).toBe(origin)
+  })
+
+  test('a story plan the seed also generates counts as the story', () => {
+    expect(planOrigin([duplicate], story, [duplicate])).toBe('story')
+  })
 })

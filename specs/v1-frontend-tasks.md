@@ -16,12 +16,13 @@ first; the steps below build the app on it. This supersedes the old
 `frontend-plan.md` (deleted). That plan's asks of the backend are all
 resolved (`decisions-log.md`), so this doc only covers the frontend itself.
 
-**Status (2026-10-03):** steps 1–3 are done. Step 1, the contract
-(`ecfac6c`), and the per-step journal counts (`75443b2`) are on `develop`.
-Step 2, `lib/` (`a38fdce`), and step 3, the core loop (`702af62`) with fixes
-from a browser check (`0351b1e`), are on branch `frontend-v1`. The core loop
+**Status (2026-10-03):** steps 1–4 are done. Steps 1–3 and the per-step
+journal counts reached `develop` at `7ec063f`: the contract (`ecfac6c`),
+`lib/` (`a38fdce`), and the core loop (`702af62`) with fixes from a browser
+check (`0351b1e`). Step 4, the fault plan editor, came after. The core loop
 runs against a local sim-api: naive breaks on each story plan, and hardened
-holds. Step 4 is next. Step 8 is deferred, because deploy is paused.
+holds. Plans can be edited and re-run. Step 5 is next. Step 8 is deferred,
+because deploy is paused.
 
 Earlier the same day this doc was revised after a review against the code:
 the app develops against a local sim-api (there's no fixtures mode), step 1
@@ -183,6 +184,8 @@ frontend/  package.json  vite.config.ts (dev proxy /api -> :3000, strips /api: s
                                    the "$" ("-$12.34", step 3)                           [done — step 2]
     seed.ts                        parseSeed(): a u32 in decimal; randomSeed() is one
                                    crypto.getRandomValues(Uint32Array) value             [done — step 2]
+    wholeNumber.ts                 parseWholeNumber(): typed digits as a safe integer, for the
+                                   seed and the editor's number fields                   [done — step 4]
     balances.ts   balancesByStep(run)  the balances after every step, folding exactly the
                                    entries each step posted (`posted`); the final fold must equal
                                    ledger.accounts or it throws (contract drift -> error banner);
@@ -190,19 +193,26 @@ frontend/  package.json  vite.config.ts (dev proxy /api -> :3000, strips /api: s
     time.ts       formatDuration() simulated ms as "250 ms", "1.5 s", "3 d", for faults and the timeline  [done — step 2]
     faultPlan.ts                   describe / add / remove / replace a FaultOp; faultProblem() catches
                                    bad numbers and unknown targets; plansEqual()          [done — step 2]
+                                   faultFromDraft(): the add form's fields -> a FaultOp or why not;
+                                   planOrigin(): story, seed or edited                    [done — step 4]
     replayLink.ts                  build/parse the fragment; verify() picks the badge state  [done — step 2]
     events.ts                      one-line descriptions of an event kind and a journal entry  [done — step 3]
     errors.ts     errorMessage()   the banner's text: sim-api codes matched exactly, never its
                                    message; a proxy's bare 502/503/504 reads as "sim-api is down"  [done — step 3]
   src/state/appState.ts            reducer: inputs, request status, last run, selected step  [done — step 3]
+                                   seedPlan (what sim-api generated for this scenario and seed, once
+                                   a run showed it), planEdited / planReset               [done — step 4]
                                    (shrink and sweep state come with steps 6 and 7)
   src/components/
     Controls.tsx        scenario picker + description, seed input + random button, handler toggle,
-                        the faults the run will use (after a run on a generated plan: the plan
-                        sim-api generated), Run. The inputs lock while a run is in flight. [done — step 3]
+                        the FaultPlanEditor, Run. The inputs, editor included, lock while a run
+                        is in flight.                                            [done — step 3]
                         Share comes with step 5.
-    FaultPlanEditor.tsx list ops; add (type + fields, event pickers drawn from the workload); remove;
-                        "reset to story plan" and "reset to seed plan"; marks a plan as edited when it diverges
+    FaultPlanEditor.tsx list ops, each with Remove; add (type + its own fields, event pickers drawn
+                        from the workload, a live preview, the reason it can't be added); "reset to
+                        story plan" and "reset to seed plan"; a label: story plan, from seed N, or
+                        edited. A seed's plan is editable once a run has shown it. Any edit clears
+                        the shown run.                                           [done — step 4]
     Timeline.tsx        the opening, then every delivery: time, description, a "redelivery" badge,
                         what it posted; click or ←/→/↑/↓/Home/End to step (focus follows the
                         selection); the selected step's journal entries below    [done — step 3]
@@ -215,7 +225,7 @@ frontend/  package.json  vite.config.ts (dev proxy /api -> :3000, strips /api: s
                         Labelled "reduced", never "minimal" (§6.3: V1 is greedy)
     SweepChart.tsx      hand-rolled SVG: naive vs hardened failure rate, plus a table fallback
   src/styles.css                   CSS variables, light/dark, responsive stack on narrow screens
-                                   (the step 3 panels are styled; each later step styles its own)
+                                   (the step 3–4 panels are styled; each later step styles its own)
 ```
 Dev deps (already installed — step 0): `vite`, `@vitejs/plugin-react`,
 `typescript`, `vitest`, `jsdom`, `@testing-library/react` + `user-event`,
@@ -244,8 +254,13 @@ the Vite dev proxy forwards to `localhost:3000`.
 
    Known, left as is: if sim-api is down when the page loads, the scenario
    list stays empty until a reload.
-4. **FaultPlanEditor.** Edit, then re-run with the explicit plan. It replaces
-   Controls' read-only faults list.
+4. ✅ **FaultPlanEditor.** Edit, then re-run with the explicit plan. It
+   replaces Controls' read-only faults list. Before a run, a seed's generated
+   plan isn't known, since sim-api generates it, so the editor says "Run once
+   to edit it" rather than guessing. sim-api's own rules are checked before
+   sending: whole non-negative numbers, a target in the workload, and at most
+   100 faults. Checked in Chrome against a live sim-api: adding, removing, the
+   seed path and both resets.
 5. **Share and replay.** Fragment, `GET /replay`, ReplayBadge, unsupported-
    version message.
 6. **ShrinkView.**
@@ -271,6 +286,9 @@ the Vite dev proxy forwards to `localhost:3000`.
   fold that disagrees with the final ledger throws. The seed validator rejects
   negatives, non-integers and values above `u32::MAX`. Replay fragments
   round-trip. `errorMessage` matches codes, never message text.
+  `parseWholeNumber` rejects signs, decimals, exponents and unsafe integers.
+  `faultFromDraft` builds each kind from its own fields only. `planOrigin`
+  tells story, seed and edited apart.
 - **reducer:** every transition on its own (`appState.test.ts`).
 - **components** (Testing Library, by behaviour, against a stubbed
   `SimClient` that serves the fixtures).
@@ -284,13 +302,21 @@ the Vite dev proxy forwards to `localhost:3000`.
     - An invalid seed can't run.
     - The inputs lock during a run.
     - sim-api's `timeout` and an unreachable sim-api get their own banners.
-  - Still to come:
+  - Done (step 4):
     - Adding a `Duplicate` op sends it in the next run request.
+    - Each kind asks for its own fields, and a number that isn't whole blocks
+      Add, saying why.
+    - Removing the story fault runs with no faults, and any edit clears the
+      shown run.
+    - Reset to story plan undoes edits. A seed's plan is editable once a run
+      has shown it, and reset to seed plan sends `null` again.
+    - A 100-fault plan takes no more.
+  - Still to come:
     - ReplayBadge shows verified / mismatch / unverified.
     - ShrinkView never says "minimal".
     - SweepChart renders the fixture's rates.
 
-After step 3: 155 tests in 12 files, all green.
+After step 4: 199 tests in 13 files, all green.
 
 ## Verification
 
