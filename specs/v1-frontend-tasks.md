@@ -19,7 +19,7 @@ resolved (`decisions-log.md`), so this doc only covers the frontend itself.
 **Status (2026-10-03):** steps 1–4 are done. Steps 1–3 and the per-step
 journal counts reached `develop` at `7ec063f`: the contract (`ecfac6c`),
 `lib/` (`a38fdce`), and the core loop (`702af62`) with fixes from a browser
-check (`0351b1e`). Step 4, the fault plan editor, came after. The core loop
+check (`0351b1e`). Step 4, the fault plan editor (`15c5ec0`), came after. The core loop
 runs against a local sim-api: naive breaks on each story plan, and hardened
 holds. Plans can be edited and re-run. Step 5 is next. Step 8 is deferred,
 because deploy is paused.
@@ -254,13 +254,17 @@ the Vite dev proxy forwards to `localhost:3000`.
 
    Known, left as is: if sim-api is down when the page loads, the scenario
    list stays empty until a reload.
-4. ✅ **FaultPlanEditor.** Edit, then re-run with the explicit plan. It
-   replaces Controls' read-only faults list. Before a run, a seed's generated
-   plan isn't known, since sim-api generates it, so the editor says "Run once
-   to edit it" rather than guessing. sim-api's own rules are checked before
-   sending: whole non-negative numbers, a target in the workload, and at most
-   100 faults. Checked in Chrome against a live sim-api: adding, removing, the
-   seed path and both resets.
+4. ✅ **FaultPlanEditor** (`15c5ec0`). Edit, then re-run with the explicit
+   plan. It replaces Controls' read-only faults list. Before a run, a seed's
+   generated plan isn't known, since sim-api generates it, so the editor says
+   "Run once to edit it" rather than guessing (`decisions-log.md`). sim-api's
+   own rules are checked before sending: whole non-negative numbers, a target
+   in the workload, and at most 100 faults. Checked in Chrome against a live
+   sim-api: adding, removing, the seed path and both resets.
+
+   Known, left as is: the add form makes the Run panel tall, so the Run
+   button sits below it and needs a scroll at laptop height. Moving Run above
+   the editor would fix it.
 5. **Share and replay.** Fragment, `GET /replay`, ReplayBadge, unsupported-
    version message.
 6. **ShrinkView.**
@@ -327,12 +331,12 @@ After step 4: 199 tests in 13 files, all green.
   the UI in a browser (screenshots). Pick scenario 1 with the naive
   handler and Run — the invariant goes red. Scrub to the duplicate capture and
   watch the merchant balance jump. Switch to hardened — everything is green.
-  Share, open the link in a new tab — the badge says verified. Edit `h` — it
+  Add a duplicate of the refund and Run — it posts twice. Share, open the link in a new tab — the badge says verified. Edit `h` — it
   shows a determinism break. Shrink — the reduced plan appears. Sweep — the
   chart renders.
-  - **Done through "Switch to hardened"** (2026-10-03, Chrome, against a live
-    sim-api). `refund-before-capture` and a seed-generated plan were
-    checked the same way. `late-ach-return` was checked only through its
+  - **Done through "Add a duplicate of the refund"** (2026-10-03, Chrome,
+    against a live sim-api). `refund-before-capture` and a seed-generated
+    plan were checked the same way, and so was editing a seed's plan. `late-ach-return` was checked only through its
     fixtures and the live response comparison.
   - Also checked live: `/scenarios` and all six story runs through the dev
     proxy are identical to the fixtures, so the component tests run on real

@@ -49,6 +49,7 @@ Engine 7 and Fault 1 were the two outstanding approvals; both are now approved, 
 | R — deploy trigger | A push to `main` after CI passes; `main` is the release branch | `deploy-plan.md` |
 | K — keep a machine warm | No: idle machines stop, with a ~1–2 s cold start | `deploy-plan.md` |
 | Frontend dev mode | No fixtures mode: the app always talks HTTP, to a local sim-api through the Vite dev proxy in development; fixtures are test data only | `v1-frontend-tasks.md` |
+| Editing a seed's plan | Editable only once a run has shown it (`seedPlan`, from the response's effective `fault_plan`). The frontend never generates plans itself, and guessing an empty plan would silently drop the seed's faults | `v1-frontend-tasks.md` step 4 |
 
 ## Open decisions from `v1-mvp-plan.md`, now resolved (2026-10-03)
 
