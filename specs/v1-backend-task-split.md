@@ -4,6 +4,11 @@ No deadline assumed here — this is the task breakdown for a clean, well-design
 runnable V1, split so two people can work without stepping on each other's files.
 Sequence reflects actual dependency order, not a time estimate.
 
+**Status (2026-10-03):** both tracks are done, except A's item 6, deploy. It's
+planned in `deploy-plan.md` and paused. The only backend change since is
+`posted` on `RunResult` and `RunResponse` (A's files, `75443b2`), which the
+frontend's timeline needed.
+
 ## Scope
 
 Full V1 per README §3 and `v1-mvp-plan.md`, no cuts: engine (clock, RNG, queue,
@@ -12,9 +17,10 @@ ledger (already done), ACH brought into V1 (D2), naive/hardened handlers, three
 scenarios, the greedy shrinker, the sweep harness, `sim-api`, and deploy.
 
 **Not covered here: the frontend.** It proceeds on its own track per
-`v1-frontend-tasks.md`, independently of this split. `v1-frontend-tasks.md` already
-describes a mock-client mode that lets frontend work start without waiting on
-`sim-api`, so the two tracks don't block each other.
+`v1-frontend-tasks.md`, independently of this split. (An earlier version
+planned a mock-client mode so frontend work wouldn't wait on `sim-api`. It
+wasn't needed: `sim-api` was done first, and the frontend develops against a
+local one through the Vite dev proxy.)
 
 ## Principle
 

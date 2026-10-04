@@ -7,9 +7,9 @@ README §3 V1 needs the core loop reachable from a browser: run a scenario, shar
 - `sweep()` and `shrink_run()`;
 - the three scenarios.
 
-This is S4 in `v1-mvp-plan.md`, and Person A's track in `v1-backend-task-split.md`. The HTTP contract is already written down in `v1-frontend-tasks.md` ("API contract v1"), and the frontend is being built against it.
+This is S4 in `v1-mvp-plan.md`, and Person A's track in `v1-backend-task-split.md`. The HTTP contract is already written down in `v1-frontend-tasks.md` ("API contract"), and the frontend is being built against it.
 
-**Status (2026-10-03):** decisions V, B and G are approved, and all pieces (API1–API7) are done on branch `sim-api`. The golden fixtures are generated into `frontend/src/api/fixtures/`.
+**Status (2026-10-03):** decisions V, B and G are approved, and all pieces (API1–API7) are done on branch `sim-api`. The golden fixtures are generated into `frontend/src/api/fixtures/`. Afterwards `RunResponse` gained `posted`, the journal entries each trace event posted, for the frontend's timeline (`decisions-log.md` Frontend 1, `75443b2`), and the fixtures were regenerated. The frontend's core loop now runs against this server through the Vite dev proxy (`v1-frontend-tasks.md` step 3).
 
 ## The principle behind most decisions below
 **sim-api is a thin, stateless, deterministic shell.** Every endpoint is a pure function of its request: it looks up the scenario, calls sim-core, and maps the result or error to the contract. Nothing is stored. So the same request always gets the same response bytes, which makes every endpoint safe to retry, POSTs included. The only async code in the workspace lives here (CLAUDE.md), and the simulation itself still runs synchronously.
@@ -143,7 +143,7 @@ pub enum DecodeError { Malformed, UnsupportedVersion(String), TooLong }
 **Moved here from API1:** `MAX_BODY_BYTES` (axum's `DefaultBodyLimit`), and a JSON extractor that maps every rejection to the envelope: 413 → `payload_too_large`, anything else → `bad_request`. Plus one helper that runs simulation work in `spawn_blocking` under `REQUEST_TIMEOUT`, answering `timeout` when it elapses and `internal` if the work panics.
 
 **DTOs** (`dto.rs`) serialize in the contract's field order:
-- `RunResponse { scenario_id, seed, handler, fault_plan, trace, opening, journal, ledger, invariants, trace_hash, replay }`, built from `RunResult`, the request and `encode_run`;
+- `RunResponse { scenario_id, seed, handler, fault_plan, trace, posted, opening, journal, ledger, invariants, trace_hash, replay }`, built from `RunResult`, the request and `encode_run` (`posted` was added after API7);
 - `ScenarioSummary { id, name, description, accounts, workload, story_plan }`, where `accounts` comes from `initial_ledger`'s names;
 - requests with `deny_unknown_fields`.
 
@@ -215,4 +215,4 @@ With `UPDATE_FIXTURES=1`, the test rewrites the files instead. Without it, a mis
   1. `cargo run -p sim-api`.
   2. `curl` `GET /scenarios`, then `POST /run` on `charge-retry` with its story plan under naive: `single_capture_per_intent` should be red.
   3. Paste the returned `replay` into `GET /replay/…`: it should give the same `trace_hash`.
-- After frontend step 8: the walkthrough in `v1-frontend-tasks.md` with `VITE_SIM_CLIENT=http` against a local sim-api.
+- With the frontend: the walkthrough in `v1-frontend-tasks.md` ("Verification"), with `npm --prefix frontend run dev` proxying `/api` to a local sim-api. Its core-loop part passed on 2026-10-03.

@@ -3,7 +3,7 @@
 ## Context
 README §3 defines V1 as "a working, deployed, deterministic simulator proving the core loop end to end: inject a fault, watch it break the naive handler, share the exact failure as a link." This compares each V1 feature against `develop` at `43082a7`, with row 1 rechecked at `3fc6ff3` (PR #2).
 
-**Bottom line (updated 2026-10-03):** 9 of the 11 V1 features are done, plus `sim-api`: engine, ledger/invariants, ACH, handlers, fault injection, replay links, shrink, sweep, and all 3 scenarios. **What's left is entirely the frontend (step 0 of 8) and deploy (not started)** — see `v1-frontend-tasks.md` and `deploy-plan.md`.
+**Bottom line (updated 2026-10-03):** 9 of the 11 V1 features are done, plus `sim-api`: engine, ledger/invariants, ACH, handlers, fault injection, replay links, shrink, sweep, and all 3 scenarios. **What's left is the frontend (steps 1–3 of 7 done, step 4 next) and deploy (planned and approved, but paused)** — see `v1-frontend-tasks.md` and `deploy-plan.md`.
 
 ## Feature status (README §3 V1)
 | # | V1 feature | Status | Spec |
@@ -17,9 +17,9 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 | 7 | Shrinker, single-pass greedy | ✅ Done: `shrink_plan()` and `shrink_run()` (SK1, SK2) | ✅ `shrink-sweep-plan.md` |
 | 8 | Sweep harness (naive vs hardened failure rate) | ✅ Done: `sweep()` (SW1). Over seeds 0..1,000, hardened fails 0 runs on every scenario, and naive 40–62% (SW2) | ✅ `shrink-sweep-plan.md` |
 | 9 | 2–3 playable scenarios | ✅ Done: `charge-retry`, `refund-before-capture`, `late-ach-return`, each with a story plan, tested end to end through `run()` | ✅ `scenarios-plan.md` |
-| 10 | Minimal UI: timeline, balances, invariants, Run/Shrink/Share | ❌ Step 0 scaffold only (a header in `App.tsx`) | ✅ `v1-frontend-tasks.md` (steps 1–8 open) |
-| 11 | Deployed + smoke-tested against the real backend | ❌ No host chosen, no Dockerfile or config | ❌ |
-| — | `sim-api` (Axum routes the UI calls) | ✅ Done: all routes, the error envelope, replay encoding, and golden fixtures (API1–API7) | ✅ `sim-api-plan.md` |
+| 10 | Minimal UI: timeline, balances, invariants, Run/Shrink/Share | 🟡 Run, timeline, balances and invariants work against a local sim-api (steps 1–3). The fault editor, Share, Shrink and Sweep are left (steps 4–7) | ✅ `v1-frontend-tasks.md` |
+| 11 | Deployed + smoke-tested against the real backend | ⏸ Paused. Host chosen (D1: Fly.io) and the plan's decisions approved, but nothing built: DP1 (CI) was written, then reverted | ✅ `deploy-plan.md` |
+| — | `sim-api` (Axum routes the UI calls) | ✅ Done: all routes, the error envelope, replay encoding, and golden fixtures (API1–API7). `RunResponse` later gained `posted` for the timeline (Frontend 1, `75443b2`) | ✅ `sim-api-plan.md` |
 
 ## Gaps inside the existing specs
 1. **`RunResult` is missing `opening` and `journal`.** `v1-frontend-tasks.md` ask #4 needs both for the timeline scrubber. `run()` consumes the `Ledger`, so sim-api can't recover them afterwards. → Resolved: `RunResult` has `opening`, `journal` and the effective `fault_plan` (E6 and F3, `3f423e5`).
@@ -52,11 +52,12 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 - CLAUDE.md's network-failure rule applies only here: body size limit, request timeout, sweep and shrink caps, and turning `SimError` into a 4xx/5xx response.
 - The golden-fixture test (frontend ask #7).
 
-**S5: deploy** (README: "pick one API host early")
-- Fly.io or Railway for the API, plus static hosting for `frontend/`. Then the smoke test from `v1-frontend-tasks.md` (walkthrough with `VITE_SIM_CLIENT=http`).
+**S5: deploy** (README: "pick one API host early") → planned in `deploy-plan.md`, and **paused** at the user's request (2026-10-03).
+- Fly.io for the API (D1), and a second Fly app serving the static frontend (decision F). A push to `main` after CI deploys (R), and idle machines stop (K). F, R and K are approved.
+- Then the smoke test: `scripts/smoke.sh` and the walkthrough from `v1-frontend-tasks.md` against the deployed API.
 
 ## Critical path and parallel tracks
-**Critical path:** ~~E3 + E5 → E6 (also needs F1) → F3 (also needs F2) → S3 → S4~~ → frontend step 8 → S5. Everything struck through is done.
+**Critical path:** ~~E3 + E5 → E6 (also needs F1) → F3 (also needs F2) → S3 → S4 → frontend steps 1–3~~ → frontend steps 4–7 → S5 and frontend step 8 (both paused). Everything struck through is done.
 
 | Work | Needs | Status |
 |---|---|---|
@@ -65,14 +66,16 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 | E6 `run()`, F3 seed → plan in `run()` | E3, E5, F1, F2 | ✅ Done |
 | S1a scenarios, S1b handlers | E5 | ✅ Done |
 | S3 shrink + sweep | F3, S1b | ✅ Done |
-| CI, frontend steps 1–7, replay-encoding spec | — | Can start now |
 | S4 sim-api | S3, S1a, S1b | ✅ Done |
-| Frontend step 8, V1 acceptance | S4 (done), frontend steps 1–7 | After frontend steps 1–7. The golden fixtures are done (`sim-api-plan.md` API6) |
-| S5 deploy | S4 (done), D1 (Fly.io) | Can start now |
+| Per-step journal counts (`posted`) | S4 | ✅ Done (`75443b2`, on `develop`) |
+| Frontend steps 1–3: contract, `lib/`, core loop | S4, `posted` | ✅ Done (`v1-frontend-tasks.md` status) |
+| Frontend steps 4–7: fault editor, share/replay, shrink, sweep | Steps 1–3 | Step 4 next |
+| CI (deploy plan DP1) | — | ⏸ Paused with deploy; DP1 was written, then reverted |
+| S5 deploy, frontend step 8, V1 acceptance | S4 (done), frontend steps 1–7, D1 (Fly.io) | ⏸ Paused. The golden fixtures the smoke test compares against are done (`sim-api-plan.md` API6) |
 
-- **Track A (engine owner):** E5 first (it unblocks S1b), E3, E6, then F2/F3, then S3.
-- **Track B:** S1a now, S1b once E5 lands, then S4.
-- **Frontend:** steps 1–7 now, in parallel. Step 8 waits for S4.
+- **Track A (engine owner):** E5 first (it unblocks S1b), E3, E6, then F2/F3, then S3. ✅ Done.
+- **Track B:** S1a now, S1b once E5 lands, then S4. ✅ Done.
+- **Frontend:** steps 1–3 done; steps 4–7 next, in order. Step 8 waits for deploy.
 
 ## Decisions (resolved 2026-10-03)
 Full rationale for each is in `specs/decisions-log.md`; summary here for the table/section references above.
@@ -82,8 +85,8 @@ Full rationale for each is in `specs/decisions-log.md`; summary here for the tab
 - **D4 — hardened handler rejects a refund that arrives before its capture, *for now*.** **This is a temporary resort, not a settled design.** Buffering would add handler-side mutable state whose own correctness isn't tested by anything yet — another unverified assumption on top of the exact class of bug the fault injector exists to surface — while rejecting is simpler and has an obvious failure signature. But neither choice is caught by any V1 invariant (both lose the refund across a crash), and the real fix is V4's reconciliation invariants (#5/#6) being able to judge whether a buffered-then-applied refund was handled correctly. **D4 needs a real discussion once V4 lands** — don't let "reject" calcify into the permanent answer just because it shipped first.
 
 ## Housekeeping (small, but blocks "done")
-- `main` on GitHub still exists (it's the default branch) and is behind `develop`.
-- No CI. README only requires it in V2, but CLAUDE.md calls the determinism check "the one test that must never go yellow", and today it only runs locally. A GitHub Actions job running the four cargo commands is cheap insurance.
+- `main` on GitHub still exists (it's the default branch) and is behind `develop` (50 commits as of 2026-10-03). Deploy decision R makes `main` the release branch, which fixes this once deploy resumes.
+- No CI. README only requires it in V2, but CLAUDE.md calls the determinism check "the one test that must never go yellow", and today it only runs locally. A GitHub Actions job running the four cargo commands and `npm run check` is cheap insurance. It's DP1 in `deploy-plan.md`, paused along with deploy.
 
 ## Verification (of this roadmap)
 - Each ❌ above was checked against the tree at `43082a7`, and rechecked at `3fc6ff3`, where PR #2 touched them only with E0's whitespace: empty files by size, `unimplemented!()` in `simulator.rs`, empty `[dependencies]` in `sim-api` and `sim-scenarios`, and no `.github/`, `Dockerfile` or `fly.toml`.

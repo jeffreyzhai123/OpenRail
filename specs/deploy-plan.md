@@ -6,20 +6,20 @@ README §3 V1 ends with "deployed and smoke-tested against the real backend", an
 What's ready:
 - `sim-api` binds `0.0.0.0:$PORT`, reads `ALLOWED_ORIGIN` for CORS, answers `GET /health`, and shuts down gracefully on SIGTERM (`sim-api-plan.md`).
 - Golden fixtures of its responses are committed in `frontend/src/api/fixtures/`.
-- The frontend is only its step-0 scaffold. Steps 1–8 are still open.
+- The frontend's core loop runs against a local sim-api (steps 1–3). Steps 4–7 are still open, and step 8 is this plan's smoke test.
 
 Constraints found while planning:
 - **The repo is private**, and your access is write, not admin. So **GitHub Pages is out**: it needs a paid plan and an admin to enable it.
 - **No `fly` or `docker` is installed locally.** Fly's remote builder builds the images, and GitHub's runners have Docker for checking that they build.
 
-**Status (2026-10-03):** not started. Decisions F, R and K await approval.
+**Status (2026-10-03):** **paused** at the user's request, to focus on frontend steps 1–7. Decisions F, R and K and deviations 1–3 are approved. DP1 (CI) was written on branch `deploy`, then reverted. Nothing deploy-related is in the repo, and the local `deploy` branch holds only the approval commit. When this resumes, start again at DP1.
 
 ## The principle behind most decisions below
 **Ship the same bytes everywhere, and prove it on every deploy.** The API's whole promise is that a replay link verifies anywhere. So the deployed release build on Linux must answer exactly like the fixtures generated locally, and the smoke test checks that byte for byte against those fixtures.
 
 Everything is code in the repo: images, Fly configs, CI and the smoke script. That leaves only the steps that handle credentials to be run by hand, and those are **yours to run**: I don't create accounts or handle tokens.
 
-## Decisions (each needs approval)
+## Decisions (approved by the user, 2026-10-03)
 ### F: where the frontend is hosted
 **A. A second Fly app serving the static build with nginx (`openrail-web`)**
 - ✅ One vendor and one CLI, and the API is unchanged. It uses the CORS path sim-api already has, as README §2 intends ("API + static hosting").
@@ -35,7 +35,7 @@ Everything is code in the repo: images, Fly configs, CI and the smoke script. Th
 - ✅ A CDN and preview deploys per branch.
 - ❌ A second vendor, a second account, and two more CI secrets.
 
-**Recommended: A.**
+**Chosen: A.**
 
 ### R: what triggers a production deploy
 **A. A push to `main`, after CI passes**
@@ -51,7 +51,7 @@ Everything is code in the repo: images, Fly configs, CI and the smoke script. Th
 - ✅ Nothing to set up.
 - ❌ Depends on whoever has `fly` installed and logged in, and nothing guarantees the gates passed.
 
-**Recommended: A.**
+**Chosen: A.**
 
 ### K: keep a machine warm?
 **A. `min_machines_running = 0`: machines stop when idle**
@@ -62,10 +62,10 @@ Everything is code in the repo: images, Fly configs, CI and the smoke script. Th
 - ✅ No cold starts.
 - ❌ A small always-on cost.
 
-**Recommended: A** for a demo. It's one line to change later.
+**Chosen: A** for a demo. It's one line to change later.
 
-## Deviations from README / TODO.md (CLAUDE.md requires flagging these)
-1. **README §2's table** gets "Fly.io (API) + Fly.io static app (frontend)", once F is approved.
+## Deviations from README / TODO.md (CLAUDE.md requires flagging these; all approved 2026-10-03)
+1. **README §2's table** gets "Fly.io (API) + Fly.io static app (frontend)" (decision F). The edit itself waits for DP7, so README keeps its current row while deploy is paused.
 2. **A `rust-toolchain.toml`** pins Rust 1.98 for local builds, CI and the image. Clippy's lints change between versions, so an unpinned CI could go red without any code change.
 3. **CLAUDE.md's Commands section** gains `scripts/smoke.sh`, the same way the frontend's `check` command was added there.
 
@@ -123,7 +123,7 @@ Runs on every pull request and on pushes to `develop` and `main`.
 
 ## DP3: the web image and Fly config
 - **`Dockerfile.web`:**
-  1. `node:26-alpine` (matching `.nvmrc`) runs `npm ci` and `npm run build`. The build arguments are `VITE_SIM_CLIENT=http` and `VITE_API_BASE_URL`.
+  1. `node:26-alpine` (matching `.nvmrc`) runs `npm ci` and `npm run build`. The one build argument is `VITE_API_BASE_URL`. The client always talks HTTP; there's no `VITE_SIM_CLIENT` switch, because there's no fixtures mode (`v1-frontend-tasks.md`).
   2. The output goes onto `nginx:1-alpine`, using its default config.
 - **`fly.web.toml`** (app `openrail-web`):
   - `[build.args] VITE_API_BASE_URL = "https://openrail-api.fly.dev"`;
@@ -136,7 +136,7 @@ Runs on every pull request and on pushes to `develop` and `main`.
 | The API URL is baked in at build time | Vite inlines `VITE_*` variables, and a static site has no runtime config. Changing the API's URL means rebuilding the web image, which CD does anyway. |
 | nginx defaults | Vite's hashed asset names already make caching safe. Tuning cache headers is YAGNI for V1. |
 
-Until frontend steps 1–7 land, this deploys the scaffold. That's enough to prove the pipeline and CORS.
+Until frontend steps 4–7 land, this deploys the core loop (steps 1–3). That's enough to prove the pipeline and CORS. Without `VITE_API_BASE_URL` the app calls `/api`, which only the Vite dev proxy serves, so the production build must set it.
 
 ## DP4: `scripts/smoke.sh API_URL [WEB_URL]`
 It uses bash, `curl` and `jq`, and exits non-zero on the first failure.
@@ -184,7 +184,7 @@ Then I run `scripts/smoke.sh https://openrail-api.fly.dev https://openrail-web.f
 - **CLAUDE.md:** `scripts/smoke.sh` in Commands (deviation 3).
 
 ## What stays after this plan
-V1's acceptance (`v1-mvp-plan.md`, "Verification") is a walkthrough of the **finished UI** on the deployed URL. That needs frontend steps 1–8. This plan makes it a push to `main` once those steps land.
+V1's acceptance (`v1-mvp-plan.md`, "Verification") is a walkthrough of the **finished UI** on the deployed URL. That needs frontend steps 1–7 (1–3 are done), plus step 8, which is this plan's smoke test. This plan makes it a push to `main` once those steps land.
 
 ## Files
 - New: `.github/workflows/ci.yml`, `rust-toolchain.toml`, `Dockerfile.api`, `Dockerfile.web`, `.dockerignore`, `fly.api.toml`, `fly.web.toml` and `scripts/smoke.sh`.

@@ -11,7 +11,7 @@ What A starts from:
 
 The work is split into pieces E0–E7 below. Each piece is one commit on a feature branch, merged into `develop` by PR. It names what it depends on, and is done when its own tests pass and `cargo fmt`, `cargo clippy --all-targets -- -D warnings` and `cargo test` are green.
 
-**Status (2026-10-03):** all pieces are done. E0–E4 merged in PR #2 (`3fc6ff3`), E5 with the handlers in `c69d2f1`, and E3 and E6 in `3f423e5`, with F3 folded into `run()`. E6's remaining tests (a real crash-restart test, replay, the golden full-run hash, Delay/Drop, the `Posting` error, trace order) landed in `ca2740a`. E7's docs sync is done. See `specs/decisions-log.md` for a consolidated view of every decision across this plan, `fault-injector-plan.md` and `v1-mvp-plan.md`.
+**Status (2026-10-03):** all pieces are done. E0–E4 merged in PR #2 (`3fc6ff3`), E5 with the handlers in `c69d2f1`, and E3 and E6 in `3f423e5`, with F3 folded into `run()`. E6's remaining tests (a real crash-restart test, replay, the golden full-run hash, Delay/Drop, the `Posting` error, trace order) landed in `ca2740a`. E7's docs sync is done. Since then, `RunResult` gained `posted` for the frontend's timeline (`75443b2`); it isn't hashed, so trace hashes and replay links are unchanged. See `specs/decisions-log.md` for a consolidated view of every decision across the specs.
 
 ## The principle behind most decisions below
 **Every ordering is explicit, and nothing reads ambient state.** The queue orders by `(time, seq)`, ties fall back to workload slice order, JSON uses field declaration order, and the ledger uses `BTreeMap`. Nothing reads a wall clock, a randomized hasher or the environment. Second rule: **low-level code reports, `run()` decides.** The clock, queue, trace and ledger return errors, and `run()` is the one boundary that turns them into a `SimError`.
@@ -234,8 +234,10 @@ pub enum SimError {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RunResult {
     pub trace: Vec<SimEvent>,
+    pub posted: Vec<usize>,               // later: decisions-log Frontend 1 (`75443b2`)
     pub opening: BTreeMap<String, Money>, // deviation 7
     pub journal: Vec<JournalEntry>,       // deviation 7
+    pub fault_plan: FaultPlan,            // later: fault-injector-plan.md deviation 1 (F3)
     pub ledger: LedgerSnapshot,
     pub invariants: Vec<InvariantResult>,
     pub trace_hash: String,
@@ -247,7 +249,7 @@ Flow:
 1. `Ledger::open` → `InvalidOpening`.
 2. `apply_fault_plan(workload, plan)` → `InvalidFaultPlan`. The plan is `fault_plan`, or empty for `None` until F3 generates one.
 3. Push the schedule's deliveries in order. The queue assigns `seq`.
-4. Build the handler with `new_handler()`, then drain the queue. Before each event, rebuild the handler for every pending crash at or before its time. Then `advance_to`, `handler.handle`, `post` each entry (→ `Posting { event }`), and append to the trace.
+4. Build the handler with `new_handler()`, then drain the queue. Before each event, rebuild the handler for every pending crash at or before its time. Then `advance_to`, `handler.handle`, `post` each entry (→ `Posting { event }`), and append to the trace. (Later: also record how many entries it posted, in `posted`.)
 5. `check_all`, then `hash_run(&trace, ledger.journal())`, then build `RunResult` from `snapshot()`, `opening().clone()` and `journal().to_vec()`.
 
 | Decision | Why |
