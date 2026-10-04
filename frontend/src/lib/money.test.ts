@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { formatCents } from './money'
+import { formatCents, formatDollars } from './money'
 
 // The same cases as Rust's display test (crates/sim-core/src/money.rs),
 // plus the largest values a JS number holds exactly.
@@ -17,4 +17,12 @@ test.each([
 
 test.each([1.5, 2 ** 53, Number.NaN])('%s is rejected', (cents) => {
   expect(() => formatCents(cents)).toThrow(RangeError)
+})
+
+test.each([
+  [0, '$0.00'],
+  [5_000, '$50.00'],
+  [-1234, '-$12.34'],
+])('%i cents is %s', (cents, expected) => {
+  expect(formatDollars(cents)).toBe(expected)
 })

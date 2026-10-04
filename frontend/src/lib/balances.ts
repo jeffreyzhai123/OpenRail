@@ -2,7 +2,7 @@
 // Display only: sim-api's ledger is the truth, and a fold that disagrees with
 // it throws rather than showing numbers the server never had.
 
-import type { Cents, RunResponse } from '../api/types'
+import type { Cents, JournalEntry, RunResponse } from '../api/types'
 
 export type Balances = Record<string, Cents>
 
@@ -62,4 +62,16 @@ function sameBalances(a: Balances, b: Balances): boolean {
     accounts.length === Object.keys(b).length &&
     accounts.every((account) => account in b && a[account] === b[account])
   )
+}
+
+/** Aligned with `trace`: the journal entries each delivery posted. */
+export function entriesByStep(
+  run: Pick<RunResponse, 'journal' | 'posted'>,
+): JournalEntry[][] {
+  let next = 0
+  return run.posted.map((count) => {
+    const entries = run.journal.slice(next, next + count)
+    next += count
+    return entries
+  })
 }

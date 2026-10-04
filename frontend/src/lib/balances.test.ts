@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import type { JournalEntry, RunResponse } from '../api/types'
 import { fixture, fixtures } from '../test/fixtures'
-import { BalanceMismatchError, balancesByStep } from './balances'
+import { BalanceMismatchError, balancesByStep, entriesByStep } from './balances'
 
 type Fold = Pick<RunResponse, 'opening' | 'journal' | 'posted' | 'ledger'>
 
@@ -81,4 +81,9 @@ describe('a fold that disagrees with its run throws', () => {
     breakIt(run)
     expect(() => balancesByStep(run)).toThrow(BalanceMismatchError)
   })
+})
+
+test('entriesByStep gives each delivery the entries it posted', () => {
+  const run = redeliveredRefund()
+  expect(entriesByStep(run)).toEqual([[], [run.journal[0]], [run.journal[1]]])
 })

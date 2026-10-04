@@ -16,3 +16,8 @@ export function formatCents(cents: number): string {
   const remainder = (magnitude % CENTS_PER_DOLLAR).toString().padStart(2, '0')
   return `${negative ? '-' : ''}${dollars}.${remainder}`
 }
+
+/** `-1234` → `"-$12.34"`: formatCents with the currency sign outside. */
+export function formatDollars(cents: number): string {
+  return cents < 0 ? `-$${formatCents(-cents)}` : `$${formatCents(cents)}`
+}
