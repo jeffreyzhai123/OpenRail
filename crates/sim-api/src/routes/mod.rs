@@ -1,6 +1,7 @@
 //! Route handlers, plus what they share: the JSON extractor, the helper that
 //! runs simulation work, and lookups.
 
+pub(crate) mod replay;
 pub(crate) mod run;
 pub(crate) mod scenarios;
 

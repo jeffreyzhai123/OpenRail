@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use tower_http::cors::CorsLayer;
 
 use crate::error::{ApiError, METHOD_NOT_ALLOWED, NOT_FOUND};
-use crate::routes::{run, scenarios};
+use crate::routes::{replay, run, scenarios};
 
 /// Requests carry at most a 100-fault plan, which is a few KB of JSON.
 pub const MAX_BODY_BYTES: usize = 64 * 1024;
@@ -22,6 +22,7 @@ pub fn app(allowed_origin: Option<HeaderValue>) -> Router {
         .route("/health", get(health))
         .route("/scenarios", get(scenarios::list_scenarios))
         .route("/run", post(run::post_run))
+        .route("/replay/{encoded}", get(replay::get_replay))
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES));
