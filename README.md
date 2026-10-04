@@ -288,8 +288,8 @@ sim-core/src/
   fault.rs        FaultOp, FaultPlan, apply_fault_plan() (pure), generate_fault_plan(seed)
   trace.rs        hash_run() — canonical JSON of (trace, journal), then blake3
   simulator.rs    run()
-  shrink.rs       shrink() — ddmin, see §6.3
-  sweep.rs        sweep() — naive vs. hardened failure rate over a seed range.
+  shrink.rs       shrink_plan() (pure greedy pass), shrink_run() (on the same named invariant) — V1 single-pass greedy, see §6.3
+  sweep.rs        sweep(), count_failing_runs() — naive vs. hardened failure rate over a seed range.
                   Its own file, not simulator.rs: keeps run()'s file solely
                   owned by the engine track (specs/v1-backend-task-split.md).
 

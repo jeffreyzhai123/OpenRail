@@ -14,7 +14,7 @@ The frontend contract (`frontend-plan.md`) fixes what sim-api will expose:
 
 **Sweep comes first.** It's the simpler piece, it checks everything already built (hardened should never fail on any generated plan), it tunes F2's generation rates, and it supplies the multi-fault failing plans the shrinker needs as test fixtures. Story plans have one fault each, so there's nothing to shrink in them.
 
-**Status (2026-10-03):** SW1 and SW2 are done on branch `shrink-sweep`. SW2's sweep over seeds 0..1,000: hardened fails **0** runs on every scenario. Naive fails 53.2% on `charge-retry`, 61.8% on `refund-before-capture` and 39.9% on `late-ach-return`, all inside the 10–90% band, so F2's rates stay as they are.
+**Status (2026-10-03):** all pieces (SW1, SW2, SK1, SK2, SD) are done on branch `shrink-sweep`. SK2's sweep fixtures each shrink from 3 faults to 1. SW2's sweep over seeds 0..1,000: hardened fails **0** runs on every scenario. Naive fails 53.2% on `charge-retry`, 61.8% on `refund-before-capture` and 39.9% on `late-ach-return`, all inside the 10–90% band, so F2's rates stay as they are.
 
 ## The principle behind most decisions below
 **Both are thin loops over `run()`, with a pure, testable core.** The sweep's core counts failing runs over a seed range for any handler factory. The shrinker's core is a greedy pass over a plan, driven by a "does it still fail?" predicate. Neither knows about HTTP or scenarios: like `run()`, they take `initial_ledger` and `workload` slices, because sim-core can't depend on sim-scenarios. sim-api destructures a `Scenario` before calling them.
@@ -86,7 +86,7 @@ pub fn count_failing_runs(initial_ledger: &[(String, i64)], workload: &[SimEvent
 /// original plan is tried for removal exactly once, and the removal is kept if
 /// the plan still fails. Not 1-minimal: never call the result "minimal".
 pub fn shrink_plan<E>(plan: &[FaultOp], still_fails: impl FnMut(&[FaultOp]) -> Result<bool, E>)
-    -> Result<(FaultPlan, u32), E>;   // (shrunk plan, candidates tried)
+    -> Result<(FaultPlan, usize), E>; // (shrunk plan, candidates tried)
 ```
 How the pass works:
 - Keep a working copy. At index `i`, try the copy without fault `i`.
@@ -114,7 +114,7 @@ pub struct ShrinkResult {
     pub original: FaultPlan,
     pub shrunk: FaultPlan,
     pub invariant: &'static str,   // the run's own name, so no lifetime ties to the request
-    pub candidates_tried: u32,
+    pub candidates_tried: usize,
     pub run: RunResult,            // the shrunk plan's run, for "Load reduced run"
 }
 pub enum ShrinkError {

@@ -14,8 +14,8 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 | 4 | Naive vs hardened handler pair | ✅ Done (E5, S1b) | ✅ (S1b) |
 | 5 | Fault injector: duplicate, reorder, delay, drop, crash-restart | ✅ Done: applying a plan (F1, PR #3), seed → plan generation (F2, PR #4), and both wired into `run()` with the effective plan returned (F3, `3f423e5`) | ✅ `fault-injector-plan.md` |
 | 6 | Replay-by-seed links (basic URL encoding) | ❌ No `encode_run` / `decode_run` | ❌ |
-| 7 | Shrinker, single-pass greedy | ❌ `shrink.rs` is empty | ❌ |
-| 8 | Sweep harness (naive vs hardened failure rate) | ❌ | ❌ |
+| 7 | Shrinker, single-pass greedy | ✅ Done: `shrink_plan()` and `shrink_run()` (SK1, SK2) | ✅ `shrink-sweep-plan.md` |
+| 8 | Sweep harness (naive vs hardened failure rate) | ✅ Done: `sweep()` (SW1). Over seeds 0..1,000, hardened fails 0 runs on every scenario, and naive 40–62% (SW2) | ✅ `shrink-sweep-plan.md` |
 | 9 | 2–3 playable scenarios | ✅ Done: `charge-retry`, `refund-before-capture`, `late-ach-return`, each with a story plan, tested end to end through `run()` | ✅ `scenarios-plan.md` |
 | 10 | Minimal UI: timeline, balances, invariants, Run/Shrink/Share | ❌ Step 0 scaffold only (a header in `App.tsx`) | ✅ `frontend-plan.md` (steps 1–8 open) |
 | 11 | Deployed + smoke-tested against the real backend | ❌ No host chosen, no Dockerfile or config | ❌ |
@@ -42,7 +42,7 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 - `Reorder { event_id, window }` reverses a window of deliveries (R). A crash-restart rebuilds the handler from a factory while the ledger survives (C). Ops apply in fixed phases (O).
 - The hardened handler therefore has to derive idempotency from `ledger.journal()`, which is the reason the trait passes it `&Ledger`.
 
-**S3: shrink + sweep** (`shrink.rs`, `simulator.rs`)
+**S3: shrink + sweep** (`shrink.rs`, `sweep.rs`) → done, see `shrink-sweep-plan.md`.
 - Greedy single pass: try removing each `FaultOp` once, and keep the removal if the *same named* invariant still fails. Report `candidates_tried`. Never say "minimal" (§6.3).
 - Sweep: for seeds `start..start+count` × {naive, hardened}, count the runs with any failed invariant. Cap `count` with a named constant.
 
@@ -56,7 +56,7 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 - Fly.io or Railway for the API, plus static hosting for `frontend/`. Then the smoke test from `frontend-plan.md` (walkthrough with `VITE_SIM_CLIENT=http`).
 
 ## Critical path and parallel tracks
-**Critical path:** ~~E3 + E5 → E6 (also needs F1) → F3 (also needs F2)~~ → S3 → S4 → frontend step 8 → S5. Everything struck through is done.
+**Critical path:** ~~E3 + E5 → E6 (also needs F1) → F3 (also needs F2) → S3~~ → S4 → frontend step 8 → S5. Everything struck through is done.
 
 | Work | Needs | Status |
 |---|---|---|
@@ -64,9 +64,9 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 | F1, F2 fault plans | — | ✅ Done |
 | E6 `run()`, F3 seed → plan in `run()` | E3, E5, F1, F2 | ✅ Done |
 | S1a scenarios, S1b handlers | E5 | ✅ Done |
-| S3 shrink + sweep | F3, S1b | Can start now |
+| S3 shrink + sweep | F3, S1b | ✅ Done |
 | CI, frontend steps 1–7, replay-encoding spec | — | Can start now |
-| S4 sim-api | S3, S1a, S1b | After S3 |
+| S4 sim-api | S3, S1a, S1b | Can start now |
 | Frontend step 8, golden fixtures, V1 acceptance | S4 | Last |
 | S5 deploy | S4, D1 | Last |
 
