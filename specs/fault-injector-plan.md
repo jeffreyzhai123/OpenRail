@@ -85,7 +85,7 @@ Rules:
 - Workload ids must be unique, since ops find events by id.
 
 ## Pieces
-Branch `fault-injector`, one commit per piece. Each is done when its tests pass and `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` are green.
+One commit per piece, on a feature branch merged into `develop` by PR (F1: `fault-injector`, PR #3; F2: `fault-generation`, PR #4). Each is done when its tests pass and `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` are green.
 
 | Piece | What | Depends on |
 |---|---|---|
@@ -96,7 +96,7 @@ Branch `fault-injector`, one commit per piece. Each is done when its tests pass 
 
 F1 and F2 are pure and only need types that already exist, so they can land before E3, E5 and E6.
 
-**Status (2026-10-03):** decisions R, C and O are approved. F1 is done on `fault-injector` (`4ac0f87`, not merged yet), and F2 is next. Engine E6 builds on F1, applying explicit plans and crash-restarts, so F3 only adds generation and the effective plan. F3 waits on E6; deviation 1 (`RunResult.fault_plan`) is approved (above). See `specs/decisions-log.md` for a consolidated view of every decision across this plan, `deterministic-engine-plan.md` and `v1-mvp-plan.md`.
+**Status (2026-10-03):** decisions R, C and O are approved. F1 is merged (PR #3). F2 is done on `fault-generation`, not merged yet: `generate_fault_plan` and a public `Rng::below`. Its rates match the spec (2.5 faults per 4-event run, 2% of seeds with none). Engine E6 builds on F1, applying explicit plans and crash-restarts, so F3 only adds generation and the effective plan. F3 waits on E6; deviation 1 (`RunResult.fault_plan`) is approved (above). See `specs/decisions-log.md` for a consolidated view of every decision across this plan, `deterministic-engine-plan.md` and `v1-mvp-plan.md`.
 
 ---
 
@@ -158,6 +158,7 @@ A compile-time `assert!` checks that the per-event percentages sum to 100 or les
 |---|---|
 | At most one op per event, from one roll | Plans stay short and free of contradictions, such as duplicating and dropping the same event, and the draw order is easy to state. |
 | A crash lands on an event's time | It then falls just before a delivery, where it can matter. |
+| Generation doesn't guard against time overflow | A `Delay` or `Duplicate` overflows only for workload times within 60 s of `u64::MAX` ms, about 584 million years. `apply_fault_plan` reports that as `TimeOverflow` rather than wrapping, and scenario times span days at most, so "every generated plan applies" holds for real workloads. The proptest draws times under 5 s. |
 | The rates are first guesses | With 4 events, about 2.5 faults per run, and about 2% of seeds get no fault. Tune them with the sweep once the S1a scenarios and S1b handlers exist: naive should fail often and hardened never. Tuning never breaks existing links (see the principle). |
 
 **Tests:**
