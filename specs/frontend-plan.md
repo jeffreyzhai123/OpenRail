@@ -14,6 +14,8 @@ README §3 V1 needs a minimal UI: a timeline, balances, an invariant panel, Run/
 - **The network boundary handles failures** (`api/client.ts`). It applies timeouts, retries idempotent calls once, validates every response, and aborts superseded requests, so a slow old response can't overwrite a newer one.
 
 ## Deviations / backend asks (CLAUDE.md: each needs explicit approval)
+**Status (2026-10-03):** sim-api implements asks #1–4, #6 and #7 (`sim-api-plan.md`). #5 is withdrawn, and #8 is deferred by design.
+
 | # | Ask | Why |
 |---|---|---|
 | 1 | Add a `handler: "naive" \| "hardened"` input to run, replay and shrink, and include it in `encode_run` | V1's whole demo is naive breaking while hardened holds. The core side is done in the specs: `run()` takes a handler factory (README §6.1), and `HandlerKind` serializes as these two names (`specs/deterministic-engine-plan.md` E5). |
@@ -22,7 +24,7 @@ README §3 V1 needs a minimal UI: a timeline, balances, an invariant panel, Run/
 | 4 | `RunResponse` also exposes `opening` + `journal` (`JournalEntry` is already serde) | Needed for the timeline scrubber: "balances at step k". Today `RunResult` only has the final `LedgerSnapshot`. |
 | 5 | ~~Serialize the seed as a decimal string on the wire~~ **Withdrawn.** | The seed is now a `u32` (`deterministic-engine-plan.md` decision W), and `JSON.parse` reads every `u32` exactly. |
 | 6 | CORS for the static frontend origin (`tower-http`), unless both are served from one origin | §2 deploys the API and the static frontend separately. |
-| 7 | Golden-fixture test in `sim-api` (`UPDATE_FIXTURES=1` regenerates `frontend/src/api/fixtures/*.json`) | Keeps the Rust DTOs and the TS types in lockstep without a codegen dependency. |
+| 7 | Golden-fixture test in `sim-api` (`UPDATE_FIXTURES=1` regenerates `frontend/src/api/fixtures/*.json`) | Keeps the Rust DTOs and the TS types in lockstep without a codegen dependency. **Done:** the fixtures are generated and committed (`sim-api-plan.md` API6). |
 | 8 | **V1 shrink shows no live progress.** It shows a busy state, then "N candidates tried" | §6.3 asks for progress in the UI. Live progress needs streaming (SSE), so it's deferred to V2's ddmin (≤500 runs). V1's greedy pass is a handful of runs. |
 | — | *Nice-to-have:* `InvariantResult` gets an optional structured `at: { entry_index, event_id }`, and trace events record which fault touched them | Lets the UI jump the timeline to where a check broke and badge injected events. Until then the UI shows the message text only. |
 
@@ -34,7 +36,10 @@ type CardEvent =                                            // crates/sim-core/s
   | { Captured: { charge_id: number; amount: Cents } }
   | { Refunded: { charge_id: number; amount: Cents } };
 type AchReturnCode = "R01" | "R02" | "R03" | "R04" | { Other: string };
-type AchEvent = { Returned: { entry_id: number; code: AchReturnCode; amount: Cents } }; // rails/ach.rs
+type AchEvent =                                             // rails/ach.rs
+  | { Initiated: { entry_id: number; amount: Cents } }
+  | { Batched: { entry_id: number } } | { Settled: { entry_id: number } }
+  | { Returned: { entry_id: number; code: AchReturnCode; amount: Cents } };
 type EventKind = { Card: CardEvent } | { Ach: AchEvent };   // one variant per rail, see event.rs
 interface SimEvent { id: EventId; time: number; seq: number; kind: EventKind }
 type FaultOp =                                              // serde's default externally-tagged form
@@ -57,7 +62,9 @@ RunResponse = { scenario_id, seed: number, handler, fault_plan: FaultOp[], trace
                 opening: Record<string, Cents>, journal: JournalEntry[],
                 ledger: { accounts: Record<string, Cents> }, invariants: InvariantResult[],
                 trace_hash: string, replay: string /* encode_run output */ }
-Errors: 4xx/5xx with { error: { code: string, message: string } }
+GET  /health               -> { status: "ok" }            // for Fly's health check
+Errors: 4xx/5xx with { error: { code: string, message: string } }. The codes are fixed in
+        specs/sim-api-plan.md ("Errors"); the UI matches on `code`, never on `message`.
 ```
 **Replay link:** `#r=<replay>&h=<trace_hash>`, kept in the fragment (§6.2), so static hosting needs no rewrites. On load, the UI calls `GET /replay/:r` and compares the returned `trace_hash` to `h`. The badge shows **verified identical**, **determinism break**, or **unverified** (no `h`). If the server can't decode `r` because it uses an old encoding version, the UI shows a clear "this link's encoding version isn't supported" message.
 
@@ -72,7 +79,9 @@ frontend/  package.json  vite.config.ts (dev proxy /api -> :3000)  tsconfig.json
     client.ts                      SimClient interface + HttpClient (AbortController timeouts,
                                    1 retry on network/502/503/504 only, error envelope -> ApiError)
     fixtureClient.ts               dev/test only; echoes the requested plan; shows a "FIXTURE DATA" banner
-    fixtures/*.json                scenarios, run (naive+hardened × 3 scenarios), replay, shrink, sweep
+    fixtures/*.json                generated by sim-api (UPDATE_FIXTURES=1, crates/sim-api/tests/fixtures.rs):
+                                   scenarios, run (naive+hardened × 3 scenarios), replay, shrink, sweep.
+                                   Prettier-ignored; never edit them by hand
   src/lib/                         pure, unit-tested, no React
     money.ts      formatCents()    BigInt, mirrors Rust Display ("-12.34"); UI adds the "$"
     seed.ts                        validate a u32 integer; random seed is one crypto.getRandomValues(Uint32Array) value
@@ -100,14 +109,14 @@ Client selection: `VITE_SIM_CLIENT=fixtures|http` and `VITE_API_BASE_URL`. Produ
 
 ## Order of work (each step is its own small commit)
 0. **Setup.** The user installs Node 24 LTS (`brew install node@24`). Scaffold with `npm create vite@latest frontend -- --template react-ts` and strip the template. Add the tooling and scripts. Add `node_modules/` and `frontend/dist/` to `.gitignore`. Add the frontend `check` command to CLAUDE.md's Commands section.
-1. **Contract.** `types.ts`, `decode.ts`, hand-written fixtures (real invariant names from `crates/sim-core/src/invariants.rs`; openings that sum to 0, per `Ledger::open`), `SimClient`, `FixtureClient`, `HttpClient`.
+1. **Contract.** `types.ts`, `decode.ts`, `SimClient`, `FixtureClient`, `HttpClient`. The fixtures already exist: sim-api generates them from real responses (`sim-api-plan.md` decision G), so don't hand-write any.
 2. **`lib/`.** money, seed, balances, faultPlan, replayLink, each with unit tests.
 3. **Core loop.** Controls, Timeline, BalancePanel, InvariantPanel and the reducer, running against fixtures.
 4. **FaultPlanEditor.** Edit, then re-run with the explicit plan.
 5. **Share and replay.** Fragment, `GET /replay`, ReplayBadge, unsupported-version message.
 6. **ShrinkView.**
 7. **SweepChart.** Load the `dataviz` skill before writing the chart code.
-8. **Go live** once sim-api ships asks #1–7: switch to `HttpClient`, replace the hand-written fixtures with the golden ones, deploy as a static site, and smoke-test against the real API (README V1's last item).
+8. **Go live** (sim-api has shipped asks #1–7): switch to `HttpClient`, deploy as a static site, and smoke-test against the real API (README V1's last item).
 
 ## Tests (Vitest, all deterministic: no live network, no wall clock, `fetch` stubbed)
 - **decode:** every fixture decodes. Rejected: missing field, unknown `EventKind`/`FaultOp` tag, unsafe integer (`2**53`), a seed outside `0..=u32::MAX` or a string seed, an `invariants` that isn't an array.

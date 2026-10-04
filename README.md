@@ -238,7 +238,7 @@ fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u32, fault
 ### 6.2 Replay-by-seed link design
 
 - A run is fully described by `scenario_id` + `seed` + an **explicit `FaultPlan`** (the seed generates an initial plan, but after that the plan is stored as data, so shrinking can remove individual faults without perturbing unrelated randomness).
-- Encoding: `encode_run(scenario_id, seed, fault_plan) -> String` — JSON → compress → base64url, held in the URL fragment (no backend storage needed, given the stateless API design in §2).
+- Encoding: `encode_run(scenario_id, seed, handler, fault_plan)` → `1.` + base64url(JSON), held in the URL fragment (no backend storage needed, given the stateless API design in §2). The version prefix sits outside the payload, so V2 can compress the JSON and still be told apart; V1 doesn't compress and caps plans at 100 faults instead (specs/sim-api-plan.md).
 - Each run carries a **trace hash** over the delivered events *and* the ledger journal, so a match means the same money movements too; a replay recomputes it and shows a "verified identical" badge, or flags a determinism break.
 - Version the encoding scheme so old links keep working, or warn clearly when they can't.
 - Known risk: long fault plans make long URLs — use compression, a short-plan cap, and a file-export fallback if needed.
@@ -300,13 +300,19 @@ sim-scenarios/src/
   scenario3_late_return.rs     ACH return arrives after settlement (pulled into V1, decisions-log.md D2)
 
 sim-api/src/
-  main.rs            Axum app — the ONLY crate with Tokio
+  main.rs            binds $PORT, graceful shutdown — the ONLY crate with Tokio
+  lib.rs, app.rs      the router (testable without a network), CORS, body limit
+  config.rs           PORT and ALLOWED_ORIGIN, checked at startup
+  error.rs            the { error: { code, message } } envelope and its codes
+  dto.rs              request/response types, in the frontend contract's field order
+  routes/mod.rs       the shared JSON extractor and spawn_blocking + timeout helper
   routes/run.rs       POST /run
   routes/scenarios.rs GET /scenarios
-  routes/replay.rs    GET /replay/:encoded
+  routes/replay.rs    GET /replay/{encoded}
   routes/shrink.rs    POST /shrink
   routes/sweep.rs     POST /sweep
   encode.rs           encode_run() / decode_run(), see §6.2
+  tests/fixtures.rs   golden fixtures for frontend/src/api/fixtures/ (UPDATE_FIXTURES=1)
 
 frontend/               React/TS, calls sim-api over HTTP
   Timeline, BalancePanel, InvariantPanel, Controls, ShrinkView, SweepChart, Gallery

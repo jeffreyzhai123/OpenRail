@@ -9,7 +9,7 @@ README §3 V1 needs the core loop reachable from a browser: run a scenario, shar
 
 This is S4 in `v1-mvp-plan.md`, and Person A's track in `v1-backend-task-split.md`. The HTTP contract is already written down in `frontend-plan.md` ("API contract v1"), and the frontend is being built against it.
 
-**Status (2026-10-03):** decisions V, B and G are approved. API1 is done on branch `sim-api`; API2 is next.
+**Status (2026-10-03):** decisions V, B and G are approved, and all pieces (API1–API7) are done on branch `sim-api`. The golden fixtures are generated into `frontend/src/api/fixtures/`.
 
 ## The principle behind most decisions below
 **sim-api is a thin, stateless, deterministic shell.** Every endpoint is a pure function of its request: it looks up the scenario, calls sim-core, and maps the result or error to the contract. Nothing is stored. So the same request always gets the same response bytes, which makes every endpoint safe to retry, POSTs included. The only async code in the workspace lives here (CLAUDE.md), and the simulation itself still runs synchronously.

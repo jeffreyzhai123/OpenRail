@@ -13,7 +13,7 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 | 3 | ACH state machine | 🟡 State machine done (`rails/ach.rs`); D2 resolved to pull it into V1, so it still needs `Batched`/`Settled` `AchEvent`s and scenario 3 | ✅ |
 | 4 | Naive vs hardened handler pair | ✅ Done (E5, S1b) | ✅ (S1b) |
 | 5 | Fault injector: duplicate, reorder, delay, drop, crash-restart | ✅ Done: applying a plan (F1, PR #3), seed → plan generation (F2, PR #4), and both wired into `run()` with the effective plan returned (F3, `3f423e5`) | ✅ `fault-injector-plan.md` |
-| 6 | Replay-by-seed links (basic URL encoding) | ❌ No `encode_run` / `decode_run` | ❌ |
+| 6 | Replay-by-seed links (basic URL encoding) | ✅ Done: `1.` + base64url(JSON), and `GET /replay` reproduces a run byte for byte | ✅ `sim-api-plan.md` |
 | 7 | Shrinker, single-pass greedy | ✅ Done: `shrink_plan()` and `shrink_run()` (SK1, SK2) | ✅ `shrink-sweep-plan.md` |
 | 8 | Sweep harness (naive vs hardened failure rate) | ✅ Done: `sweep()` (SW1). Over seeds 0..1,000, hardened fails 0 runs on every scenario, and naive 40–62% (SW2) | ✅ `shrink-sweep-plan.md` |
 | 9 | 2–3 playable scenarios | ✅ Done: `charge-retry`, `refund-before-capture`, `late-ach-return`, each with a story plan, tested end to end through `run()` | ✅ `scenarios-plan.md` |
@@ -46,7 +46,7 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 - Greedy single pass: try removing each `FaultOp` once, and keep the removal if the *same named* invariant still fails. Report `candidates_tried`. Never say "minimal" (§6.3).
 - Sweep: for seeds `start..start+count` × {naive, hardened}, count the runs with any failed invariant. Cap `count` with a named constant.
 
-**S4: sim-api + replay encoding** (`sim-api`)
+**S4: sim-api + replay encoding** (`sim-api`) → done, see `sim-api-plan.md`.
 - Routes: `POST /run`, `GET /replay/:encoded`, `POST /shrink`, `POST /sweep`, plus `GET /scenarios`. Use the error envelope and the DTOs from `frontend-plan.md`, with the seed as a `u32` JSON number (engine decision W).
 - `encode_run` in V1 is "basic URL encoding" (README §3): versioned JSON → base64url, **without compression** (compression is the §6.2 / V2 target). That keeps the deps to axum, tokio, serde, tower-http (CORS) and a base64 implementation.
 - CLAUDE.md's network-failure rule applies only here: body size limit, request timeout, sweep and shrink caps, and turning `SimError` into a 4xx/5xx response.
@@ -56,7 +56,7 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 - Fly.io or Railway for the API, plus static hosting for `frontend/`. Then the smoke test from `frontend-plan.md` (walkthrough with `VITE_SIM_CLIENT=http`).
 
 ## Critical path and parallel tracks
-**Critical path:** ~~E3 + E5 → E6 (also needs F1) → F3 (also needs F2) → S3~~ → S4 → frontend step 8 → S5. Everything struck through is done.
+**Critical path:** ~~E3 + E5 → E6 (also needs F1) → F3 (also needs F2) → S3 → S4~~ → frontend step 8 → S5. Everything struck through is done.
 
 | Work | Needs | Status |
 |---|---|---|
@@ -66,9 +66,9 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 | S1a scenarios, S1b handlers | E5 | ✅ Done |
 | S3 shrink + sweep | F3, S1b | ✅ Done |
 | CI, frontend steps 1–7, replay-encoding spec | — | Can start now |
-| S4 sim-api | S3, S1a, S1b | Can start now |
-| Frontend step 8, golden fixtures, V1 acceptance | S4 | Last |
-| S5 deploy | S4, D1 | Last |
+| S4 sim-api | S3, S1a, S1b | ✅ Done |
+| Frontend step 8, V1 acceptance | S4 (done), frontend steps 1–7 | After frontend steps 1–7. The golden fixtures are done (`sim-api-plan.md` API6) |
+| S5 deploy | S4 (done), D1 (Fly.io) | Can start now |
 
 - **Track A (engine owner):** E5 first (it unblocks S1b), E3, E6, then F2/F3, then S3.
 - **Track B:** S1a now, S1b once E5 lands, then S4.
