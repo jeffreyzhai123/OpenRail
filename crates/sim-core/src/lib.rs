@@ -9,6 +9,7 @@ pub mod rails;
 pub mod rng;
 pub mod shrink;
 pub mod simulator;
+pub mod sweep;
 pub mod trace;
 
 #[cfg(test)]

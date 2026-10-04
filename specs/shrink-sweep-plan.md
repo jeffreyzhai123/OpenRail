@@ -14,7 +14,7 @@ The frontend contract (`frontend-plan.md`) fixes what sim-api will expose:
 
 **Sweep comes first.** It's the simpler piece, it checks everything already built (hardened should never fail on any generated plan), it tunes F2's generation rates, and it supplies the multi-fault failing plans the shrinker needs as test fixtures. Story plans have one fault each, so there's nothing to shrink in them.
 
-**Status (2026-10-03):** not started.
+**Status (2026-10-03):** SW1 is done on branch `shrink-sweep`. SW2 is next.
 
 ## The principle behind most decisions below
 **Both are thin loops over `run()`, with a pure, testable core.** The sweep's core counts failing runs over a seed range for any handler factory. The shrinker's core is a greedy pass over a plan, driven by a "does it still fail?" predicate. Neither knows about HTTP or scenarios: like `run()`, they take `initial_ledger` and `workload` slices, because sim-core can't depend on sim-scenarios. sim-api destructures a `Scenario` before calling them.
@@ -47,7 +47,7 @@ pub struct SweepResult { pub runs: u32, pub naive_failed: u32, pub hardened_fail
 
 pub enum SweepError {
     TooManySeeds { count: u32, max: u32 },
-    SeedOverflow,                          // seed_start + count passes u32::MAX
+    SeedOverflow,                          // the last seed, seed_start + count - 1, passes u32::MAX
     Run { seed: u32, error: SimError },
 }
 
@@ -56,14 +56,14 @@ pub fn sweep(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed_start
     -> Result<SweepResult, SweepError>;
 
 /// The core: how many of those runs fail any invariant, for one handler factory.
-pub fn count_failing_runs(initial_ledger: &[(String, i64)], workload: &[SimEvent], seeds: Range<u32>,
+pub fn count_failing_runs(initial_ledger: &[(String, i64)], workload: &[SimEvent], seeds: impl IntoIterator<Item = u32>,
     new_handler: &dyn Fn() -> Box<dyn EventHandler>) -> Result<u32, SweepError>;
 ```
 `lib.rs` gains `pub mod sweep;`.
 
 | Decision | Why |
 |---|---|
-| `sweep()` takes `seed_start` and `count`, not a `Range` | It matches the API, and building `seed_start + count` with `checked_add` here means no caller can overflow it. |
+| `sweep()` takes `seed_start` and `count`, and the core takes any sequence of seeds | It matches the API. Overflow means the *last* seed would pass `u32::MAX`, so a one-seed sweep at `u32::MAX` is valid, which a `Range<u32>` can't express. |
 | A run "fails" if any invariant fails | That's the roadmap's definition, and what the chart shows. A per-invariant breakdown is YAGNI until the UI wants it. |
 | The handler pair is fixed in `sweep()`, but `count_failing_runs` takes any factory | The API compares exactly naive and hardened. The core stays testable with test handlers. |
 | `run()` errors stop the sweep and name the seed | Generated plans are always valid, so an error means a handler posted a broken entry. That's a bug to surface, not a failure to count. |
@@ -73,7 +73,7 @@ pub fn count_failing_runs(initial_ledger: &[(String, i64)], workload: &[SimEvent
 - **Counts:** `runs == count`, and `0 <= failed <= runs`.
 - **Real failures:** on a capture-then-refund workload over seeds 0..200, naive fails on some seeds and hardened on none.
 - **A handler that never posts** fails no runs.
-- **Edges:** `count == 0` gives zero runs. `count > MAX_SWEEP_SEEDS` gives `TooManySeeds`. `seed_start = u32::MAX, count = 2` gives `SeedOverflow`.
+- **Edges:** `count == 0` gives zero runs. `count > MAX_SWEEP_SEEDS` gives `TooManySeeds`. `seed_start = u32::MAX` works with `count = 1` and gives `SeedOverflow` with `count = 2`.
 - **Errors:** a handler that posts an unbalanced entry gives `Run { seed, .. }` for the first seed.
 
 ## SW2: sweep the real scenarios (`sim-scenarios/tests/sweep.rs`)
