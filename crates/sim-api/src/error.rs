@@ -6,7 +6,9 @@ use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
+use sim_core::shrink::ShrinkError;
 use sim_core::simulator::SimError;
+use sim_core::sweep::SweepError;
 
 use crate::encode::{DecodeError, MAX_PLAN_FAULTS, MAX_REPLAY_LEN};
 
@@ -20,6 +22,10 @@ pub(crate) const INVALID_FAULT_PLAN: &str = "invalid_fault_plan";
 pub(crate) const PLAN_TOO_LONG: &str = "plan_too_long";
 pub(crate) const INVALID_REPLAY: &str = "invalid_replay";
 pub(crate) const UNSUPPORTED_ENCODING_VERSION: &str = "unsupported_encoding_version";
+pub(crate) const TOO_MANY_SEEDS: &str = "too_many_seeds";
+pub(crate) const SEED_OVERFLOW: &str = "seed_overflow";
+pub(crate) const UNKNOWN_INVARIANT: &str = "unknown_invariant";
+pub(crate) const DOES_NOT_FAIL: &str = "does_not_fail";
 pub(crate) const TIMEOUT: &str = "timeout";
 pub(crate) const INTERNAL: &str = "internal";
 
@@ -95,6 +101,44 @@ impl From<SimError> for ApiError {
             ),
             // The rest mean a scenario or handler is broken.
             other => ApiError::internal(other.to_string()),
+        }
+    }
+}
+
+impl From<ShrinkError> for ApiError {
+    fn from(error: ShrinkError) -> Self {
+        match error {
+            ShrinkError::PlanTooLong { len, .. } => ApiError::plan_too_long(len),
+            ShrinkError::UnknownInvariant(_) => ApiError::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                UNKNOWN_INVARIANT,
+                error.to_string(),
+            ),
+            ShrinkError::DoesNotFail(_) => ApiError::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                DOES_NOT_FAIL,
+                error.to_string(),
+            ),
+            ShrinkError::Run(sim) => ApiError::from(sim),
+        }
+    }
+}
+
+impl From<SweepError> for ApiError {
+    fn from(error: SweepError) -> Self {
+        match error {
+            SweepError::TooManySeeds { .. } => ApiError::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                TOO_MANY_SEEDS,
+                error.to_string(),
+            ),
+            SweepError::SeedOverflow => ApiError::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                SEED_OVERFLOW,
+                error.to_string(),
+            ),
+            // Generated plans are always valid, so any run error is a bug.
+            SweepError::Run { .. } => ApiError::internal(error.to_string()),
         }
     }
 }

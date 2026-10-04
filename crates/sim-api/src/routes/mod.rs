@@ -4,6 +4,8 @@
 pub(crate) mod replay;
 pub(crate) mod run;
 pub(crate) mod scenarios;
+pub(crate) mod shrink;
+pub(crate) mod sweep;
 
 use std::time::Duration;
 

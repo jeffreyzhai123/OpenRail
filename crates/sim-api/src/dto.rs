@@ -11,6 +11,7 @@ use sim_core::invariants::InvariantResult;
 use sim_core::ledger::{JournalEntry, LedgerSnapshot};
 use sim_core::money::Money;
 use sim_core::simulator::RunResult;
+use sim_core::sweep::SweepResult;
 use sim_scenarios::Scenario;
 
 use crate::encode::{Replay, encode_run};
@@ -96,6 +97,63 @@ impl From<Scenario> for ScenarioSummary {
                 .collect(),
             workload: scenario.workload,
             story_plan: scenario.story_plan,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ShrinkRequest {
+    pub(crate) scenario_id: String,
+    pub(crate) seed: u32,
+    pub(crate) handler: HandlerKind,
+    /// `null`, or absent, means the seed's generated plan, the one `POST /run`
+    /// would use.
+    pub(crate) fault_plan: Option<FaultPlan>,
+    pub(crate) invariant: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ShrinkResponse {
+    pub(crate) original: FaultPlan,
+    pub(crate) shrunk: FaultPlan,
+    pub(crate) invariant: &'static str,
+    pub(crate) candidates_tried: usize,
+    /// The shrunk plan's run, with its own replay link.
+    pub(crate) run: RunResponse,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SweepRequest {
+    pub(crate) scenario_id: String,
+    pub(crate) seed_start: u32,
+    pub(crate) count: u32,
+}
+
+/// Counts, not rates: the UI computes the percentages.
+#[derive(Debug, Serialize)]
+pub(crate) struct SweepResponse {
+    count: u32,
+    naive: Failures,
+    hardened: Failures,
+}
+
+#[derive(Debug, Serialize)]
+struct Failures {
+    failed: u32,
+}
+
+impl From<SweepResult> for SweepResponse {
+    fn from(result: SweepResult) -> Self {
+        SweepResponse {
+            count: result.runs,
+            naive: Failures {
+                failed: result.naive_failed,
+            },
+            hardened: Failures {
+                failed: result.hardened_failed,
+            },
         }
     }
 }
