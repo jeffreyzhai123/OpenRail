@@ -8,6 +8,7 @@ import {
   type RunRequest,
   type RunResponse,
   type ScenarioSummary,
+  type ShrinkRequest,
   type ShrinkResponse,
 } from './api/types'
 import { describeFault } from './lib/faultPlan'
@@ -572,6 +573,155 @@ describe('share links', () => {
     await screen.findByRole('heading', { name: /Replay/ })
     await run(user)
     expect(screen.queryByRole('heading', { name: /Replay/ })).toBeNull()
+  })
+})
+
+describe('shrinking', () => {
+  const shrinkFixture = () => fixture('shrink.json') as ShrinkResponse
+
+  /** Runs the story under naive, with a stub shrinker answering `answer`. */
+  async function failingRun(answer = shrinkFixture()) {
+    const shrinks: ShrinkRequest[] = []
+    const app = await renderApp({
+      shrink: async (request) => {
+        shrinks.push(request)
+        return answer
+      },
+    })
+    await run(app.user)
+    return { ...app, shrinks }
+  }
+
+  test('only failed invariants offer a shrink', async () => {
+    const { user } = await failingRun()
+    const buttons = screen.getAllByRole('button', { name: /^Shrink the plan/ })
+    expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Shrink the plan on single_capture_per_intent',
+      'Shrink the plan on single_entry_per_source_event',
+    ])
+    await user.click(screen.getByRole('radio', { name: 'Hardened' }))
+    await run(user)
+    expect(
+      screen.queryByRole('button', { name: /^Shrink the plan/ }),
+    ).toBeNull()
+  })
+
+  test("a shrink sends the run's inputs and the invariant", async () => {
+    const { user, shrinks, requests } = await failingRun()
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Shrink the plan on single_entry_per_source_event',
+      }),
+    )
+    await screen.findByRole('heading', { name: /Reduced plan/ })
+    expect(shrinks).toEqual([
+      { ...requests[0], invariant: 'single_entry_per_source_event' },
+    ])
+  })
+
+  test('the reduced plan shows what was kept, never claiming "minimal"', async () => {
+    const { user } = await failingRun()
+    await user.click(
+      screen.getAllByRole('button', { name: /^Shrink the plan/ })[1],
+    )
+    const view = (
+      await screen.findByRole('heading', { name: /Reduced plan/ })
+    ).closest('section') as HTMLElement
+
+    expect(within(view).getByText(/1 of 3 faults still break/)).toBeDefined()
+    expect(
+      within(view)
+        .getAllByRole('listitem')
+        .map((item) => item.className),
+    ).toEqual(['removed', 'removed', 'kept'])
+    expect(within(view).getByText(/3 candidates tried/)).toBeDefined()
+    expect(document.body.textContent).not.toMatch(/minimal/i)
+  })
+
+  test('Load reduced run shows its run and makes its plan current', async () => {
+    const response = shrinkFixture()
+    const { user, requests } = await failingRun()
+    await user.click(
+      screen.getAllByRole('button', { name: /^Shrink the plan/ })[1],
+    )
+    await user.click(
+      await screen.findByRole('button', { name: 'Load reduced run' }),
+    )
+
+    expect(screen.queryByRole('heading', { name: /Reduced plan/ })).toBeNull()
+    expect(
+      screen.getByRole('heading', { name: /invariants/ }).textContent,
+    ).toBe('1 of 5 invariants failed')
+    expect(shownFaults()).toEqual(response.shrunk.map(describeFault))
+    expect(screen.getByText('reduced')).toBeDefined()
+    await run(user)
+    expect(requests.at(-1)?.fault_plan).toEqual(response.shrunk)
+  })
+
+  test('a plan that needs every fault says so, with nothing to load', async () => {
+    const story = (fixture('scenarios.json') as ScenarioSummary[])[0].story_plan
+    const { user } = await failingRun({
+      ...shrinkFixture(),
+      original: story,
+      shrunk: story,
+      candidates_tried: 1,
+    })
+    await user.click(
+      screen.getAllByRole('button', { name: /^Shrink the plan/ })[0],
+    )
+    expect(await screen.findByText(/Every fault is needed/)).toBeDefined()
+    expect(screen.getByText(/1 candidate tried/)).toBeDefined()
+    expect(
+      screen.queryByRole('button', { name: 'Load reduced run' }),
+    ).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('heading', { name: /Reduced plan/ })).toBeNull()
+  })
+
+  test('a shrink in flight locks the inputs and says which', async () => {
+    let answer: (response: ShrinkResponse) => void = () => {}
+    const { user } = await renderApp({
+      shrink: () => new Promise((resolve) => (answer = resolve)),
+    })
+    await run(user)
+    await user.click(
+      screen.getAllByRole('button', { name: /^Shrink the plan/ })[0],
+    )
+
+    expect(screen.getByText('Shrinking…')).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Run' })).toHaveProperty(
+      'disabled',
+      true,
+    )
+    expect(
+      screen.getByRole('combobox', { name: 'Scenario' }).matches(':disabled'),
+    ).toBe(true)
+    answer(shrinkFixture())
+    await screen.findByRole('heading', { name: /Reduced plan/ })
+    expect(screen.getByRole('button', { name: 'Run' })).toHaveProperty(
+      'disabled',
+      false,
+    )
+    expect(screen.queryByText('Shrinking…')).toBeNull()
+  })
+
+  test('a shrink sim-api refuses gets its banner and leaves the run', async () => {
+    const { user } = await renderApp({
+      shrink: () =>
+        Promise.reject(new ApiError(422, 'does_not_fail', 'server wording')),
+    })
+    await run(user)
+    await user.click(
+      screen.getAllByRole('button', { name: /^Shrink the plan/ })[0],
+    )
+
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      "That plan doesn't fail the invariant, so there's nothing to shrink.",
+    )
+    expect(screen.getByRole('heading', { name: /invariants/ })).toBeDefined()
+    expect(
+      screen.getAllByRole('button', { name: /^Shrink the plan/ })[0],
+    ).toHaveProperty('disabled', false)
   })
 })
 

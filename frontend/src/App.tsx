@@ -1,33 +1,35 @@
 import { useEffect, useReducer, useState, type Dispatch } from 'react'
 import { Latest, isAbortError, type SimClient } from './api/client'
-import type { RunResponse } from './api/types'
 import { BalancePanel } from './components/BalancePanel'
 import { Controls } from './components/Controls'
 import { ErrorBanner } from './components/ErrorBanner'
 import { InvariantPanel } from './components/InvariantPanel'
 import { ReplayBadge } from './components/ReplayBadge'
+import { ShrinkView } from './components/ShrinkView'
 import { Timeline } from './components/Timeline'
-import { balancesByStep, entriesByStep, type Balances } from './lib/balances'
+import { balancesByStep, entriesByStep } from './lib/balances'
 import { parseReplayFragment, shareUrl } from './lib/replayLink'
 import { randomSeed } from './lib/seed'
 import {
   initialState,
   reducer,
   runRequest,
+  shrinkRequest,
   type Action,
 } from './state/appState'
 
-/** Dispatches how a run-like call ends: `done` with its balances, or the
- * failure for the banner. */
-function settle(
-  call: Promise<RunResponse>,
+/** Dispatches how a call to sim-api ends: `done`'s action, or the failure
+ * for the banner, including one `done` throws (a journal that doesn't add
+ * up, from balancesByStep). */
+function settle<T>(
+  call: Promise<T>,
   dispatch: Dispatch<Action>,
-  done: (response: RunResponse, balances: Balances[]) => Action,
+  done: (response: T) => Action,
 ) {
   call.then(
     (response) => {
       try {
-        dispatch(done(response, balancesByStep(response)))
+        dispatch(done(response))
       } catch (error) {
         dispatch({ type: 'failed', error })
       }
@@ -56,10 +58,10 @@ function App({ client }: { client: SimClient }) {
       settle(
         runs.start((signal) => client.replay(link.replay, { signal })),
         dispatch,
-        (response, balances) => ({
+        (response) => ({
           type: 'replaySucceeded',
           response,
-          balances,
+          balances: balancesByStep(response),
           expected: link.traceHash,
         }),
       )
@@ -90,7 +92,26 @@ function App({ client }: { client: SimClient }) {
     settle(
       runs.start((signal) => client.run(request, { signal })),
       dispatch,
-      (response, balances) => ({ type: 'runSucceeded', response, balances }),
+      (response) => ({
+        type: 'runSucceeded',
+        response,
+        balances: balancesByStep(response),
+      }),
+    )
+  }
+
+  function startShrink(invariant: string) {
+    const shrink = shrinkRequest(state, invariant)
+    if (shrink === null) return
+    dispatch({ type: 'shrinkStarted', invariant })
+    settle(
+      runs.start((signal) => client.shrink(shrink, { signal })),
+      dispatch,
+      (response) => ({
+        type: 'shrinkSucceeded',
+        response,
+        balances: balancesByStep(response.run),
+      }),
     )
   }
 
@@ -121,7 +142,8 @@ function App({ client }: { client: SimClient }) {
           handler={state.handler}
           plan={state.plan}
           seedPlan={state.seedPlan}
-          linkPlan={state.linkPlan}
+          loadedPlan={state.loadedPlan}
+          locked={state.status === 'running' || state.status === 'shrinking'}
           running={state.status === 'running'}
           canRun={request !== null && state.status === 'ready'}
           onScenario={(id) => dispatch({ type: 'scenarioPicked', id })}
@@ -145,7 +167,21 @@ function App({ client }: { client: SimClient }) {
                   actual={run.response.trace_hash}
                 />
               )}
-              <InvariantPanel invariants={run.response.invariants} />
+              <InvariantPanel
+                invariants={run.response.invariants}
+                onShrink={startShrink}
+                shrinking={
+                  run.shrink?.result === null ? run.shrink.invariant : null
+                }
+                canShrink={state.status === 'ready'}
+              />
+              {run.shrink?.result && (
+                <ShrinkView
+                  response={run.shrink.result.response}
+                  onLoad={() => dispatch({ type: 'reducedRunLoaded' })}
+                  onDismiss={() => dispatch({ type: 'shrinkDismissed' })}
+                />
+              )}
               <div className="trace">
                 <Timeline
                   trace={run.response.trace}
@@ -168,6 +204,7 @@ function App({ client }: { client: SimClient }) {
 const PLACEHOLDERS = {
   loading: 'Loading scenarios…',
   running: 'Running…',
+  shrinking: 'Shrinking…',
   ready: 'Pick a scenario and run it to see what happens.',
 }
 

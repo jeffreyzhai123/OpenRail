@@ -1,8 +1,19 @@
 import { describe, expect, test } from 'vitest'
-import type { FaultOp, RunResponse, ScenarioSummary } from '../api/types'
+import type {
+  FaultOp,
+  RunResponse,
+  ScenarioSummary,
+  ShrinkResponse,
+} from '../api/types'
 import { balancesByStep } from '../lib/balances'
 import { fixture } from '../test/fixtures'
-import { initialState, reducer, runRequest, type AppState } from './appState'
+import {
+  initialState,
+  reducer,
+  runRequest,
+  shrinkRequest,
+  type AppState,
+} from './appState'
 
 function scenarios(): ScenarioSummary[] {
   return fixture('scenarios.json') as ScenarioSummary[]
@@ -203,7 +214,10 @@ describe('replaying a share link', () => {
       fault_plan: response.fault_plan,
     })
     expect(state.seedText).toBe(String(response.seed))
-    expect(state.linkPlan).toEqual(response.fault_plan)
+    expect(state.loadedPlan).toEqual({
+      plan: response.fault_plan,
+      from: 'link',
+    })
   })
 
   test('the run records what the link promised and whether it held', () => {
@@ -230,10 +244,76 @@ describe('replaying a share link', () => {
     const state = replayed(null)
     expect(
       reducer(state, { type: 'scenarioPicked', id: scenarios()[1].id })
-        .linkPlan,
+        .loadedPlan,
     ).toBeNull()
     expect(
-      reducer(state, { type: 'seedEdited', text: '9' }).linkPlan,
+      reducer(state, { type: 'seedEdited', text: '9' }).loadedPlan,
     ).toBeNull()
+  })
+})
+
+describe('shrinking', () => {
+  const invariant = 'single_entry_per_source_event'
+
+  function shrunk(): AppState {
+    const response = fixture('shrink.json') as ShrinkResponse
+    const started = reducer(withRun(loaded()), {
+      type: 'shrinkStarted',
+      invariant,
+    })
+    return reducer(started, {
+      type: 'shrinkSucceeded',
+      response,
+      balances: balancesByStep(response.run),
+    })
+  }
+
+  test('the request is the current inputs plus the invariant', () => {
+    expect(shrinkRequest(loaded(), invariant)).toEqual({
+      ...runRequest(loaded()),
+      invariant,
+    })
+  })
+
+  test('a shrink in flight locks the inputs and names its invariant', () => {
+    const state = reducer(withRun(loaded()), {
+      type: 'shrinkStarted',
+      invariant,
+    })
+    expect(state.status).toBe('shrinking')
+    expect(state.run?.shrink).toEqual({ invariant, result: null })
+  })
+
+  test('a failed shrink leaves the run, without the shrink', () => {
+    const started = reducer(withRun(loaded()), {
+      type: 'shrinkStarted',
+      invariant,
+    })
+    const state = reducer(started, { type: 'failed', error: new Error('x') })
+    expect(state.run?.response).toBe(started.run?.response)
+    expect(state.run?.shrink).toBeNull()
+  })
+
+  test('the result stays with its run until dismissed or replaced', () => {
+    const state = shrunk()
+    expect(state.status).toBe('ready')
+    expect(state.run?.shrink?.result?.response.invariant).toBe(invariant)
+    expect(reducer(state, { type: 'shrinkDismissed' }).run?.shrink).toBeNull()
+    expect(withRun(state).run?.shrink).toBeNull()
+  })
+
+  test('loading the reduced run makes the shrunk plan current', () => {
+    const response = fixture('shrink.json') as ShrinkResponse
+    const state = reducer(shrunk(), { type: 'reducedRunLoaded' })
+    expect(state.plan).toEqual(response.shrunk)
+    expect(state.loadedPlan).toEqual({ plan: response.shrunk, from: 'reduced' })
+    expect(state.run?.response).toEqual(response.run)
+    expect(state.run?.shrink).toBeNull()
+    expect(runRequest(state)?.fault_plan).toEqual(response.shrunk)
+  })
+
+  test('with no shrink result there is nothing to load', () => {
+    const state = withRun(loaded())
+    expect(reducer(state, { type: 'reducedRunLoaded' })).toBe(state)
   })
 })

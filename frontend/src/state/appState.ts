@@ -7,9 +7,11 @@ import type {
   RunRequest,
   RunResponse,
   ScenarioSummary,
+  ShrinkRequest,
+  ShrinkResponse,
 } from '../api/types'
 import type { Balances } from '../lib/balances'
-import { plansEqual } from '../lib/faultPlan'
+import { plansEqual, type LoadedPlan } from '../lib/faultPlan'
 import { verify, type Verification } from '../lib/replayLink'
 import { parseSeed } from '../lib/seed'
 
@@ -22,6 +24,12 @@ export interface CompletedRun {
   /** Set when the run came from a share link: the hash the link promised,
    * and whether the recomputed run reproduced it. */
   link: { expected: string | null; verification: Verification } | null
+  /** A shrink of this run's plan on one failed invariant: in flight while
+   * `result` is null. It belongs to the run, so a new run drops it. */
+  shrink: {
+    invariant: string
+    result: { response: ShrinkResponse; balances: Balances[] } | null
+  } | null
 }
 
 export interface AppState {
@@ -36,9 +44,11 @@ export interface AppState {
   /** The plan sim-api generated for this scenario and seed, once a run on
    * the generated plan has shown it. The handler doesn't change it. */
   seedPlan: FaultOp[] | null
-  /** The plan a share link loaded, so the editor can say where it came from. */
-  linkPlan: FaultOp[] | null
-  status: 'loading' | 'ready' | 'running'
+  /** The last plan loaded from a share link or the shrinker, so the editor
+   * can say where it came from. */
+  loadedPlan: LoadedPlan | null
+  /** Inputs lock while `running` or `shrinking`. */
+  status: 'loading' | 'ready' | 'running' | 'shrinking'
   run: CompletedRun | null
   error: unknown
 }
@@ -62,6 +72,15 @@ export type Action =
   | { type: 'stepSelected'; step: number }
   | { type: 'planEdited'; plan: FaultOp[] }
   | { type: 'planReset'; to: 'story' | 'seed' }
+  | { type: 'shrinkStarted'; invariant: string }
+  | {
+      type: 'shrinkSucceeded'
+      response: ShrinkResponse
+      /** The reduced run's balances, so loading it needs no new request. */
+      balances: Balances[]
+    }
+  | { type: 'shrinkDismissed' }
+  | { type: 'reducedRunLoaded' }
 
 export const initialState: AppState = {
   scenarios: [],
@@ -71,7 +90,7 @@ export const initialState: AppState = {
   handler: 'naive',
   plan: null,
   seedPlan: null,
-  linkPlan: null,
+  loadedPlan: null,
   status: 'loading',
   run: null,
   error: null,
@@ -99,7 +118,7 @@ export function reducer(state: AppState, action: Action): AppState {
         scenarioId: scenario.id,
         plan: scenario.story_plan,
         seedPlan: null,
-        linkPlan: null,
+        loadedPlan: null,
         run: null,
         error: null,
       }
@@ -115,7 +134,7 @@ export function reducer(state: AppState, action: Action): AppState {
         seed,
         plan: null,
         seedPlan: null,
-        linkPlan: null,
+        loadedPlan: null,
         run: null,
       }
     }
@@ -150,15 +169,20 @@ export function reducer(state: AppState, action: Action): AppState {
         handler: response.handler,
         plan: response.fault_plan,
         seedPlan: null,
-        linkPlan: response.fault_plan,
+        loadedPlan: { plan: response.fault_plan, from: 'link' },
         run: completed(response, action.balances, {
           expected: action.expected,
           verification: verify(action.expected, response.trace_hash),
         }),
       }
     }
-    case 'failed':
-      return { ...state, status: 'ready', error: action.error }
+    case 'failed': {
+      // A shrink that failed leaves nothing to show.
+      const pending = state.run?.shrink?.result === null
+      const run =
+        pending && state.run ? { ...state.run, shrink: null } : state.run
+      return { ...state, status: 'ready', error: action.error, run }
+    }
     case 'stepSelected': {
       if (!state.run) return state
       const last = state.run.response.trace.length
@@ -172,6 +196,49 @@ export function reducer(state: AppState, action: Action): AppState {
       const scenario = state.scenarios.find(({ id }) => id === state.scenarioId)
       return scenario ? withPlan(state, scenario.story_plan) : state
     }
+    case 'shrinkStarted':
+      if (!state.run) return state
+      return {
+        ...state,
+        status: 'shrinking',
+        error: null,
+        run: {
+          ...state.run,
+          shrink: { invariant: action.invariant, result: null },
+        },
+      }
+    case 'shrinkSucceeded': {
+      if (!state.run) return state
+      const { response, balances } = action
+      return {
+        ...state,
+        status: 'ready',
+        run: {
+          ...state.run,
+          shrink: {
+            invariant: response.invariant,
+            result: { response, balances },
+          },
+        },
+      }
+    }
+    case 'shrinkDismissed':
+      return state.run
+        ? { ...state, run: { ...state.run, shrink: null } }
+        : state
+    case 'reducedRunLoaded': {
+      const result = state.run?.shrink?.result
+      if (!result) return state
+      // sim-api already ran the reduced plan, so loading it is the same as
+      // editing the plan down and pressing Run.
+      const { shrunk, run } = result.response
+      return {
+        ...state,
+        plan: shrunk,
+        loadedPlan: { plan: shrunk, from: 'reduced' },
+        run: completed(run, result.balances, null),
+      }
+    }
   }
 }
 
@@ -180,7 +247,7 @@ function completed(
   balances: Balances[],
   link: CompletedRun['link'],
 ): CompletedRun {
-  return { response, balances, step: response.trace.length, link }
+  return { response, balances, step: response.trace.length, link, shrink: null }
 }
 
 /** A different plan clears the shown run, which the old plan produced. */
@@ -203,4 +270,14 @@ export function runRequest(state: AppState): RunRequest | null {
     handler: state.handler,
     fault_plan: state.plan,
   }
+}
+
+/** The request to shrink the current inputs' plan on one invariant, or
+ * `null` if they can't run. */
+export function shrinkRequest(
+  state: AppState,
+  invariant: string,
+): ShrinkRequest | null {
+  const request = runRequest(state)
+  return request && { ...request, invariant }
 }

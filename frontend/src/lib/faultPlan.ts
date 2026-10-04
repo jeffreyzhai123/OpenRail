@@ -185,20 +185,43 @@ function buildFault({
   }
 }
 
+/** A plan loaded from outside the editor: a share link's, or the
+ * shrinker's reduced plan. */
+export interface LoadedPlan {
+  plan: FaultOp[]
+  from: 'link' | 'reduced'
+}
+
 /** Where the plan the editor shows came from. `null` is the seed's plan,
- * which sim-api generates; an explicit plan that matches neither the story,
- * the seed's known plan nor a share link's plan has been edited. */
-export type PlanOrigin = 'story' | 'seed' | 'link' | 'edited'
+ * which sim-api generates; an explicit plan that matches none of the story,
+ * the seed's known plan or a loaded plan has been edited. */
+export type PlanOrigin = 'story' | 'seed' | LoadedPlan['from'] | 'edited'
 
 export function planOrigin(
   plan: readonly FaultOp[] | null,
   story: readonly FaultOp[],
   seedPlan: readonly FaultOp[] | null,
-  linkPlan: readonly FaultOp[] | null,
+  loaded: LoadedPlan | null,
 ): PlanOrigin {
   if (plan === null) return 'seed'
   if (plansEqual(plan, story)) return 'story'
   if (seedPlan !== null && plansEqual(plan, seedPlan)) return 'seed'
-  if (linkPlan !== null && plansEqual(plan, linkPlan)) return 'link'
+  if (loaded !== null && plansEqual(plan, loaded.plan)) return loaded.from
   return 'edited'
+}
+
+/** For each fault of `original`, whether `shrunk` kept it. The shrinker only
+ * removes faults, so `shrunk` is `original` with some taken out, in order. */
+export function keptFaults(
+  original: readonly FaultOp[],
+  shrunk: readonly FaultOp[],
+): boolean[] {
+  let next = 0
+  return original.map((op) => {
+    if (next < shrunk.length && sameFault(op, shrunk[next])) {
+      next += 1
+      return true
+    }
+    return false
+  })
 }

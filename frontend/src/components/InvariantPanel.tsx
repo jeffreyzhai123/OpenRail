@@ -1,11 +1,22 @@
 import type { InvariantResult } from '../api/types'
 
-/** Each named invariant, held or failed, with sim-api's message on failure. */
+interface InvariantPanelProps {
+  invariants: InvariantResult[]
+  /** Shrinks the run's plan on the named failed invariant. */
+  onShrink: (name: string) => void
+  /** The invariant being shrunk right now, if any. */
+  shrinking: string | null
+  canShrink: boolean
+}
+
+/** Each named invariant, held or failed, with sim-api's message on failure
+ * and a way to shrink the plan down to what breaks it. */
 export function InvariantPanel({
   invariants,
-}: {
-  invariants: InvariantResult[]
-}) {
+  onShrink,
+  shrinking,
+  canShrink,
+}: InvariantPanelProps) {
   const failed = invariants.filter(({ passed }) => !passed).length
   return (
     <section className="panel invariants" aria-labelledby="invariants-heading">
@@ -19,6 +30,17 @@ export function InvariantPanel({
           <li key={name} className={passed ? 'pass' : 'fail'}>
             <span className="status">{passed ? '✓ held' : '✗ failed'}</span>{' '}
             <code>{name}</code>
+            {!passed && (
+              <button
+                type="button"
+                className="shrink"
+                aria-label={`Shrink the plan on ${name}`}
+                disabled={!canShrink}
+                onClick={() => onShrink(name)}
+              >
+                {shrinking === name ? 'Shrinking…' : 'Shrink'}
+              </button>
+            )}
             {message && <p className="message">{message}</p>}
           </li>
         ))}

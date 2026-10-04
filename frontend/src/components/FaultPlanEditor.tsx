@@ -10,6 +10,7 @@ import {
   removeFault,
   type FaultDraft,
   type FaultKind,
+  type LoadedPlan,
 } from '../lib/faultPlan'
 import { parseWholeNumber } from '../lib/wholeNumber'
 
@@ -18,8 +19,8 @@ interface FaultPlanEditorProps {
   plan: FaultOp[] | null
   /** What sim-api generated for this seed, once a run has shown it. */
   seedPlan: FaultOp[] | null
-  /** The plan a share link loaded. */
-  linkPlan: FaultOp[] | null
+  /** The last plan loaded from a share link or the shrinker. */
+  loadedPlan: LoadedPlan | null
   storyPlan: FaultOp[]
   seed: number | null
   workload: SimEvent[]
@@ -35,7 +36,7 @@ export function FaultPlanEditor(props: FaultPlanEditorProps) {
     props.plan,
     props.storyPlan,
     props.seedPlan,
-    props.linkPlan,
+    props.loadedPlan,
   )
   const fromSeed =
     props.seed === null ? 'from the seed' : `from seed ${props.seed}`
@@ -43,6 +44,7 @@ export function FaultPlanEditor(props: FaultPlanEditorProps) {
     story: 'story plan',
     seed: fromSeed,
     link: 'from the link',
+    reduced: 'reduced',
     edited: 'edited',
   }[origin]
 

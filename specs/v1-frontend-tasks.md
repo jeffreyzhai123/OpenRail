@@ -16,14 +16,15 @@ first; the steps below build the app on it. This supersedes the old
 `frontend-plan.md` (deleted). That plan's asks of the backend are all
 resolved (`decisions-log.md`), so this doc only covers the frontend itself.
 
-**Status (2026-10-04):** steps 1–5 are done. Steps 1–3 and the per-step
-journal counts reached `develop` at `7ec063f`: the contract (`ecfac6c`),
-`lib/` (`a38fdce`), and the core loop (`702af62`) with fixes from a browser
-check (`0351b1e`). Step 4, the fault plan editor (`15c5ec0`), and step 5,
-share and replay, came after. The core loop runs against a local sim-api:
-naive breaks on each story plan, and hardened holds. Plans can be edited and
-re-run, and a run can be shared as a link that replays and verifies. Step 6
-is next. Step 8 is deferred, because deploy is paused.
+**Status (2026-10-04):** steps 1–6 are done. Steps 1–5 reached `develop`
+at `2904578`: the contract (`ecfac6c`), `lib/` (`a38fdce`), the core loop
+(`702af62`, with fixes from a browser check in `0351b1e`), the fault plan
+editor (`15c5ec0`) and share and replay (`2904578`). Step 6, the shrink view,
+came after. The core loop runs against a local sim-api: naive breaks on each
+story plan, and hardened holds. Plans can be edited and re-run, a run can be
+shared as a link that replays and verifies, and a failing plan can be shrunk
+to the faults that still break it. Step 7 is next. Step 8 is deferred,
+because deploy is paused.
 
 Earlier the same day this doc was revised after a review against the code:
 the app develops against a local sim-api (there's no fixtures mode), step 1
@@ -195,7 +196,9 @@ frontend/  package.json  vite.config.ts (dev proxy /api -> :3000, strips /api: s
     faultPlan.ts                   describe / add / remove / replace a FaultOp; faultProblem() catches
                                    bad numbers and unknown targets; plansEqual()          [done — step 2]
                                    faultFromDraft(): the add form's fields -> a FaultOp or why not;
-                                   planOrigin(): story, seed, link (step 5) or edited     [done — step 4]
+                                   planOrigin(): story, seed, a loaded plan's source (link,
+                                   step 5; reduced, step 6) or edited                     [done — step 4]
+                                   keptFaults(): which of a shrink's original faults it kept  [done — step 6]
     replayLink.ts                  build/parse the fragment; verify() picks the badge state  [done — step 2]
                                    shareUrl(): this page's address with the run's fragment  [done — step 5]
     events.ts                      one-line descriptions of an event kind and a journal entry  [done — step 3]
@@ -206,33 +209,39 @@ frontend/  package.json  vite.config.ts (dev proxy /api -> :3000, strips /api: s
                                    a run showed it), planEdited / planReset               [done — step 4]
                                    replayStarted (clears the shown run: a link names other inputs),
                                    replaySucceeded (the link's inputs become the current ones),
-                                   linkPlan, and run.link: the promised hash and the badge state  [done — step 5]
-                                   (shrink and sweep state come with steps 6 and 7)
+                                   and run.link: the promised hash and the badge state     [done — step 5]
+                                   run.shrink (in flight, then its result; a new run drops it),
+                                   a `shrinking` status that locks the inputs, shrinkRequest(),
+                                   reducedRunLoaded; loadedPlan (`link` or `reduced`) replaces
+                                   step 5's linkPlan                                       [done — step 6]
+                                   (sweep state comes with step 7)
   src/components/
     Controls.tsx        scenario picker + description, seed input + random button, handler toggle,
                         the FaultPlanEditor, Run. The inputs, editor included, lock while a run
-                        is in flight.                                            [done — step 3]
+                        or a shrink is in flight (`locked`; only a run says "Running…"). [done — step 3]
                         Share, beside Run once a run is shown (ShareButton.tsx): copies the
                         link, or shows it to copy by hand if the clipboard isn't there.  [done — step 5]
     FaultPlanEditor.tsx list ops, each with Remove; add (type + its own fields, event pickers drawn
                         from the workload, a live preview, the reason it can't be added); "reset to
                         story plan" and "reset to seed plan"; a label: story plan, from seed N,
-                        from the link (step 5), or edited. A seed's plan is editable once a run has shown it. Any edit clears
+                        from the link (step 5), reduced (step 6), or edited. A seed's plan is editable once a run has shown it. Any edit clears
                         the shown run.                                           [done — step 4]
     Timeline.tsx        the opening, then every delivery: time, description, a "redelivery" badge,
                         what it posted; click or ←/→/↑/↓/Home/End to step (focus follows the
                         selection); the selected step's journal entries below    [done — step 3]
     BalancePanel.tsx    balances at the selected step, change vs the previous step highlighted  [done — step 3]
     InvariantPanel.tsx  pass/fail per named invariant + message                  [done — step 3]
-                        A "Shrink" button on each failure comes with step 6.
+                        a "Shrink" button on each failure ("Shrinking…" while in flight) [done — step 6]
     ErrorBanner.tsx     role="alert", errorMessage()'s text                      [done — step 3]
     ReplayBadge.tsx     above the invariants for a link's run: "verified identical", "determinism
                         break" with both hashes, or "unverified" when the link has no hash  [done — step 5]
     ShrinkView.tsx      original vs reduced plan, candidates tried, "Load reduced run".
-                        Labelled "reduced", never "minimal" (§6.3: V1 is greedy)
+                        Labelled "reduced", never "minimal" (§6.3: V1 is greedy). The original
+                        plan with each fault marked kept or removed; "every fault is needed"
+                        when nothing could go; Close                             [done — step 6]
     SweepChart.tsx      hand-rolled SVG: naive vs hardened failure rate, plus a table fallback
   src/styles.css                   CSS variables, light/dark, responsive stack on narrow screens
-                                   (the step 3–5 panels are styled; each later step styles its own)
+                                   (the step 3–6 panels are styled; step 7 styles its own)
 ```
 Dev deps (already installed — step 0): `vite`, `@vitejs/plugin-react`,
 `typescript`, `vitest`, `jsdom`, `@testing-library/react` + `user-event`,
@@ -290,7 +299,22 @@ the Vite dev proxy forwards to `localhost:3000`.
      replay now clears the shown run. It also showed a hot-reload-only
      symptom, which led to a guard: scenarios arriving after an unmount no
      longer add a `hashchange` listener that's never removed.
-6. **ShrinkView.**
+6. ✅ **ShrinkView.**
+   - **Shrink** on a failed invariant sends the shown run's inputs, plan
+     included (`null` lets sim-api generate the seed's plan), and that
+     invariant's name to `POST /shrink`.
+   - **The view** marks which original faults were kept, and says how many
+     candidates were tried in one greedy pass. A smaller plan may still fail
+     it, so it never says "minimal".
+   - **Load reduced run** shows the run sim-api already computed for the
+     shrunk plan, so it needs no second request, and makes that plan
+     current, labelled "reduced".
+   - **Errors** (`does_not_fail`, `unknown_invariant`, `timeout`) get the
+     banner and leave the run as it was.
+   - **Checked in Chrome against a live sim-api:** seed 0's three-fault plan
+     shrank to its one duplicate, and the reduced run loaded. The check
+     found a bug: the button kept saying "Shrinking…" after the result came
+     back. The test now pins it.
 7. **SweepChart.** Load the `dataviz` skill before writing the chart code.
 8. **Deferred: deploy is paused** (`specs/deploy-plan.md`). Nothing in steps
    1–7 depends on it, because the app already uses the HTTP client against a
@@ -348,11 +372,22 @@ the Vite dev proxy forwards to `localhost:3000`.
       failed link leaves no earlier link's run on screen.
     - A pasted link replays. Running afterwards drops the badge.
     - Scenarios arriving after an unmount add no listener.
+  - Done (step 6):
+    - Only failed invariants offer a shrink, and a shrink sends the run's
+      inputs and the invariant.
+    - The view marks kept and removed faults and the candidates tried, and
+      the page never says "minimal".
+    - Load reduced run shows its run and makes its plan current, so the next
+      Run sends it.
+    - A plan that needs every fault says so, with nothing to load, and Close
+      dismisses it.
+    - A shrink in flight locks the inputs, labels only its own button, and
+      clears the label when done.
+    - A refused shrink gets its banner and leaves the run.
   - Still to come:
-    - ShrinkView never says "minimal".
     - SweepChart renders the fixture's rates.
 
-After step 5: 217 tests in 13 files, all green.
+After step 6: 233 tests in 13 files, all green.
 
 ## Verification
 
@@ -367,8 +402,9 @@ After step 5: 217 tests in 13 files, all green.
   link in a new tab — the badge says verified. Edit `h` — it shows a
   determinism break. Shrink — the reduced plan appears. Sweep — the chart
   renders.
-  - **Done through "Edit `h`"** (2026-10-03 and 10-04, Chrome, against a
-    live sim-api). `refund-before-capture`, a seed-generated plan and editing
+  - **Done through "Shrink"** (2026-10-03 and 10-04, Chrome, against a live
+    sim-api). The shrink used seed 0's three-fault plan, since story plans
+    don't shrink. `refund-before-capture`, a seed-generated plan and editing
     a seed's plan were checked the same way. `late-ach-return` was checked
     only through its fixtures and the live response comparison.
   - Also checked live: `/scenarios` and all six story runs through the dev

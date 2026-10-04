@@ -13,11 +13,13 @@ import {
   faultKind,
   faultProblem,
   faultTarget,
+  keptFaults,
   planOrigin,
   plansEqual,
   removeFault,
   replaceFault,
   type FaultDraft,
+  type LoadedPlan,
 } from './faultPlan'
 
 const duplicate: FaultOp = { Duplicate: { event_id: 2 } }
@@ -175,7 +177,29 @@ describe('where a plan came from', () => {
   })
 
   test("a share link's plan says so, until it's edited", () => {
-    expect(planOrigin([crash], story, null, [crash])).toBe('link')
-    expect(planOrigin([], story, null, [crash])).toBe('edited')
+    const link: LoadedPlan = { plan: [crash], from: 'link' }
+    expect(planOrigin([crash], story, null, link)).toBe('link')
+    expect(planOrigin([], story, null, link)).toBe('edited')
+  })
+
+  test("the shrinker's reduced plan says so", () => {
+    const reduced: LoadedPlan = { plan: [drop], from: 'reduced' }
+    expect(planOrigin([drop], story, null, reduced)).toBe('reduced')
+  })
+})
+
+describe('which faults a shrink kept', () => {
+  test('each original fault is marked kept or removed, in order', () => {
+    expect(keptFaults([delay, reorder, duplicate], [duplicate])).toEqual([
+      false,
+      false,
+      true,
+    ])
+    expect(keptFaults([delay, drop], [delay, drop])).toEqual([true, true])
+    expect(keptFaults([delay, drop], [])).toEqual([false, false])
+  })
+
+  test('of two identical faults, the first is the one kept', () => {
+    expect(keptFaults([drop, drop], [drop])).toEqual([true, false])
   })
 })
