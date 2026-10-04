@@ -55,8 +55,9 @@ impl Rng {
     /// Uniform in `0..bound`, by rejection sampling (arc4random_uniform
     /// style). A bare `% bound` would favor small values whenever `bound`
     /// doesn't divide 2^32. Rejected draws still come from the seeded stream,
-    /// so the loop stays deterministic.
-    fn below(&mut self, bound: NonZeroU32) -> u32 {
+    /// so the loop stays deterministic. Public for callers whose range can't
+    /// be empty, so they skip `next_range`'s `Option`.
+    pub fn below(&mut self, bound: NonZeroU32) -> u32 {
         let bound = bound.get();
         // 2^32 mod bound: the draws under this are the ones that would make
         // the low residues more likely.

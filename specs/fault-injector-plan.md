@@ -96,7 +96,7 @@ Branch `fault-injector`, one commit per piece. Each is done when its tests pass 
 
 F1 and F2 are pure and only need types that already exist, so they can land before E3, E5 and E6.
 
-**Status (2026-10-03):** decisions R, C and O are approved. F1 is done on `fault-injector` (`4ac0f87`, not merged yet), and F2 is next. Engine E6 builds on F1, applying explicit plans and crash-restarts, so F3 only adds generation and the effective plan. F3 waits on E6; deviation 1 (`RunResult.fault_plan`) is approved (above). See `specs/decisions-log.md` for a consolidated view of every decision across this plan, `deterministic-engine-plan.md` and `v1-mvp-plan.md`.
+**Status (2026-10-03):** decisions R, C and O are approved. F1 is merged (PR #3). F2 is done on `fault-generation`, not merged yet: `generate_fault_plan` and a public `Rng::below`. Its rates match the spec (2.5 faults per 4-event run, 2% of seeds with none). Engine E6 builds on F1, applying explicit plans and crash-restarts, so F3 only adds generation and the effective plan. F3 waits on E6; deviation 1 (`RunResult.fault_plan`) is approved (above). See `specs/decisions-log.md` for a consolidated view of every decision across this plan, `deterministic-engine-plan.md` and `v1-mvp-plan.md`.
 
 ---
 

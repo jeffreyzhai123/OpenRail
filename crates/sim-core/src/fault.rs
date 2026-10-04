@@ -9,10 +9,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::iter;
+use std::num::NonZeroU32;
 
 use serde::{Deserialize, Serialize};
 
 use crate::event::{EventId, EventKind, SimEvent};
+use crate::rng::Rng;
 
 /// A provider redelivering a webhook after its delivery timed out.
 pub const DUPLICATE_REDELIVERY_MS: u64 = 30_000;
@@ -213,12 +215,74 @@ fn reverse_window(deliveries: &mut [Delivery], event_id: EventId, window: usize)
     }
 }
 
+// Seed → plan generation. Unlike `apply_fault_plan`, this isn't part of the
+// replay contract: links carry the explicit plan, so tuning these rates only
+// changes fresh runs and the sweep. They're first guesses, to be tuned with
+// the sweep once scenarios and handlers exist.
+
+// `unwrap` in a const runs at compile time, so a zero here fails the build.
+const PERCENT: NonZeroU32 = NonZeroU32::new(100).unwrap();
+const DUPLICATE_PERCENT: u32 = 20;
+const DROP_PERCENT: u32 = 5;
+const DELAY_PERCENT: u32 = 20;
+const REORDER_PERCENT: u32 = 15;
+const CRASH_PERCENT: u32 = 10;
+const MAX_DELAY_MS: NonZeroU32 = NonZeroU32::new(60_000).unwrap();
+const MIN_REORDER_WINDOW: u32 = 2;
+/// How many window sizes to choose from, starting at `MIN_REORDER_WINDOW`.
+const REORDER_WINDOW_SIZES: NonZeroU32 = NonZeroU32::new(2).unwrap();
+
+// One roll picks at most one fault per event, so the bands must fit in it.
+const DUPLICATE_BELOW: u32 = DUPLICATE_PERCENT;
+const DROP_BELOW: u32 = DUPLICATE_BELOW + DROP_PERCENT;
+const DELAY_BELOW: u32 = DROP_BELOW + DELAY_PERCENT;
+const REORDER_BELOW: u32 = DELAY_BELOW + REORDER_PERCENT;
+const _: () = assert!(REORDER_BELOW <= PERCENT.get());
+
+/// Draw order: one roll per workload event, in slice order, plus a delay or
+/// window draw when the roll picks one. Then one roll for a crash-restart.
+pub fn generate_fault_plan(seed: u32, workload: &[SimEvent]) -> FaultPlan {
+    let mut rng = Rng::from_seed(seed);
+    let mut plan: FaultPlan = workload
+        .iter()
+        .filter_map(|event| roll_event_fault(&mut rng, event.id))
+        .collect();
+    plan.extend(roll_crash(&mut rng, workload));
+    plan
+}
+
+fn roll_event_fault(rng: &mut Rng, event_id: EventId) -> Option<FaultOp> {
+    match rng.below(PERCENT) {
+        roll if roll < DUPLICATE_BELOW => Some(FaultOp::Duplicate { event_id }),
+        roll if roll < DROP_BELOW => Some(FaultOp::Drop { event_id }),
+        roll if roll < DELAY_BELOW => Some(FaultOp::Delay {
+            event_id,
+            by: u64::from(1 + rng.below(MAX_DELAY_MS)),
+        }),
+        roll if roll < REORDER_BELOW => Some(FaultOp::Reorder {
+            event_id,
+            window: (MIN_REORDER_WINDOW + rng.below(REORDER_WINDOW_SIZES)) as usize,
+        }),
+        _ => None,
+    }
+}
+
+/// Lands on a workload event's time, so the crash falls just before a
+/// delivery, where it can matter.
+fn roll_crash(rng: &mut Rng, workload: &[SimEvent]) -> Option<FaultOp> {
+    if rng.below(PERCENT) >= CRASH_PERCENT {
+        return None;
+    }
+    let count = NonZeroU32::new(u32::try_from(workload.len()).ok()?)?;
+    let event = workload.get(rng.below(count) as usize)?;
+    Some(FaultOp::CrashRestart { at: event.time })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::money::Money;
     use crate::rails::card::{CardEvent, ChargeId};
-    use crate::rng::Rng;
     // Named imports: the prelude glob also exports a `Rng` trait.
     use proptest::prelude::{
         Strategy, any, prop, prop_assert, prop_assert_eq, prop_oneof, proptest,
@@ -449,10 +513,70 @@ mod tests {
         );
     }
 
+    fn kind_name(op: &FaultOp) -> &'static str {
+        match op {
+            FaultOp::Duplicate { .. } => "Duplicate",
+            FaultOp::Reorder { .. } => "Reorder",
+            FaultOp::Delay { .. } => "Delay",
+            FaultOp::Drop { .. } => "Drop",
+            FaultOp::CrashRestart { .. } => "CrashRestart",
+        }
+    }
+
+    #[test]
+    fn same_seed_gives_the_same_plan() {
+        assert_eq!(
+            generate_fault_plan(42, &workload()),
+            generate_fault_plan(42, &workload())
+        );
+    }
+
+    #[test]
+    fn different_seeds_give_different_plans() {
+        let first = generate_fault_plan(0, &workload());
+        assert!((1..100).any(|seed| generate_fault_plan(seed, &workload()) != first));
+    }
+
+    #[test]
+    fn empty_workload_gives_an_empty_plan() {
+        for seed in 0..100 {
+            assert_eq!(
+                generate_fault_plan(seed, &[]),
+                FaultPlan::new(),
+                "seed {seed}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_fault_kind_gets_generated() {
+        // Catches a broken band: a kind whose threshold can never be hit.
+        let seen: BTreeSet<&str> = (0..1_000)
+            .flat_map(|seed| generate_fault_plan(seed, &workload()))
+            .map(|op| kind_name(&op))
+            .collect();
+        assert_eq!(
+            seen,
+            BTreeSet::from(["CrashRestart", "Delay", "Drop", "Duplicate", "Reorder"])
+        );
+    }
+
     const MAX_EVENTS: u64 = 8;
 
-    /// A workload with ids `1..=len` at times drawn from a small range, so
-    /// ties are common, plus a plan whose ops all target those ids.
+    /// Ids `1..=len`, one per time, so ids are unique by construction.
+    fn workload_from_times(times: Vec<u64>) -> Vec<SimEvent> {
+        (1..)
+            .zip(times)
+            .map(|(id, time)| captured(id, time))
+            .collect()
+    }
+
+    /// Times come from a small range, so ties are common.
+    fn workload_strategy() -> impl Strategy<Value = Vec<SimEvent>> {
+        prop::collection::vec(0u64..5_000, 1..=MAX_EVENTS as usize).prop_map(workload_from_times)
+    }
+
+    /// A workload plus a plan whose ops all target its ids.
     fn case() -> impl Strategy<Value = (Vec<SimEvent>, Vec<FaultOp>)> {
         (1..=MAX_EVENTS)
             .prop_flat_map(|len| {
@@ -470,13 +594,7 @@ mod tests {
                 let times = prop::collection::vec(0u64..5_000, len as usize);
                 (times, prop::collection::vec(op, 0..8))
             })
-            .prop_map(|(times, plan)| {
-                let workload = (1..)
-                    .zip(times)
-                    .map(|(id, time)| captured(id, time))
-                    .collect();
-                (workload, plan)
-            })
+            .prop_map(|(times, plan)| (workload_from_times(times), plan))
     }
 
     proptest! {
@@ -516,6 +634,36 @@ mod tests {
                 apply_fault_plan(&workload, &plan),
                 apply_fault_plan(&workload, &permuted)
             );
+        }
+
+        #[test]
+        fn generated_plans_are_well_formed(seed in any::<u32>(), workload in workload_strategy()) {
+            let plan = generate_fault_plan(seed, &workload);
+            let ids: BTreeSet<EventId> = workload.iter().map(|event| event.id).collect();
+            let times: BTreeSet<u64> = workload.iter().map(|event| event.time).collect();
+            let max_delay = u64::from(MAX_DELAY_MS.get());
+            let windows = MIN_REORDER_WINDOW as usize
+                ..(MIN_REORDER_WINDOW + REORDER_WINDOW_SIZES.get()) as usize;
+
+            let mut targeted = BTreeSet::new();
+            let mut crashes = 0;
+            for op in &plan {
+                match op {
+                    FaultOp::CrashRestart { at } => {
+                        crashes += 1;
+                        prop_assert!(times.contains(at), "crash at {at} isn't a workload time");
+                    }
+                    FaultOp::Delay { by, .. } => prop_assert!((1..=max_delay).contains(by)),
+                    FaultOp::Reorder { window, .. } => prop_assert!(windows.contains(window)),
+                    FaultOp::Duplicate { .. } | FaultOp::Drop { .. } => {}
+                }
+                if let Some(id) = target(op) {
+                    prop_assert!(ids.contains(&id));
+                    prop_assert!(targeted.insert(id), "two ops target event {}", id.0);
+                }
+            }
+            prop_assert!(crashes <= 1);
+            prop_assert!(apply_fault_plan(&workload, &plan).is_ok());
         }
     }
 }
