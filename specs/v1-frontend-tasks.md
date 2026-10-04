@@ -22,7 +22,7 @@ covers what remains: the frontend itself.
 develops against a local sim-api (there's no fixtures mode), step 8 is
 deferred because deploy is paused, step 1 gains the Vite dev proxy, and the
 per-step journal counts the timeline needs (pending approval) come before
-step 3. Step 1 is in progress on branch `frontend-v1`.
+step 3. Step 1 is done on branch `frontend-v1`; step 2 is next.
 
 ## Principles (unchanged from the original plan)
 
