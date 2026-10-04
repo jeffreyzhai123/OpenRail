@@ -10,7 +10,7 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 |---|---|---|---|
 | 1 | Virtual clock, seeded RNG, event queue, trace hashing | 🟡 RNG, clock and `hash_run` done (PR #2). Queue, handler trait and `run()` open (E3, E5, E6) | ✅ `deterministic-engine-plan.md` |
 | 2 | `Money(i64)` ledger + balance invariants | ✅ Done (#1–#4 run; #5/#6 named, V4) | ✅ `ledger-plan.md` |
-| 3 | ACH state machine | ✅ Done (`rails/ach.rs`), but **no V1 scenario uses it** (see D2) | ✅ |
+| 3 | ACH state machine | 🟡 State machine done (`rails/ach.rs`); D2 resolved to pull it into V1, so it still needs `Batched`/`Settled` `AchEvent`s and scenario 3 | ✅ |
 | 4 | Naive vs hardened handler pair | ❌ `handlers/*.rs` are empty (the trait and `HandlerKind` names go in `handlers/mod.rs`, engine E5) | ❌ (S1b) |
 | 5 | Fault injector: duplicate, reorder, delay, drop, crash-restart | 🟡 `apply_fault_plan()` done (F1, `4ac0f87` on `fault-injector`, not merged). Seed → plan generation (F2) and `run()` wiring (E6, F3) open | ✅ `fault-injector-plan.md` |
 | 6 | Replay-by-seed links (basic URL encoding) | ❌ No `encode_run` / `decode_run` | ❌ |
@@ -28,14 +28,14 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 
 ## Missing specs, and the decisions each one must make
 **S1a: scenarios** (`sim-scenarios`). Doesn't need the handlers.
-- Scenario 1 (charge retried after timeout) and scenario 2 (refund before capture), as `Scenario { id, name, description, initial_ledger, workload }`. Openings must sum to zero (`Ledger::open`). Event ids are unique (`apply_fault_plan` targets them). Event times are simulated milliseconds (engine decision T), written with named constants such as `MS_PER_DAY`.
+- Scenario 1 (charge retried after timeout), scenario 2 (refund before capture), and scenario 3 (ACH return after settlement — pulled into V1 per D2), as `Scenario { id, name, description, initial_ledger, workload }`. Openings must sum to zero (`Ledger::open`). Event ids are unique (`apply_fault_plan` targets them). Event times are simulated milliseconds (engine decision T), written with named constants such as `MS_PER_DAY`. Scenario 3 additionally needs `Batched`/`Settled` `AchEvent`s added to `rails/ach.rs` (today it only has `Returned`).
 - `sim-scenarios` needs a `sim-core` dependency and a `scenarios()` registry, which sim-api's `GET /scenarios` uses (frontend ask #2).
-- Each scenario's "naive fails, hardened passes" test waits for S1b. Decisions D2 and D3.
+- Each scenario's "naive fails, hardened passes" test waits for S1b. D2 and D3 are resolved (see Decisions below).
 
 **S1b: handlers** (`handlers/naive.rs`, `hardened.rs`, `HandlerKind::build`). Needs engine E5.
 - Naive: posts on every Captured or Refunded event, with no deduplication and no ordering checks.
 - Hardened: deduplicates **durably, from `ledger.journal()`**: by event id, because a redelivered webhook has the same `EventId` as its journal entry's `source`, or by intent, for a retried capture. An in-memory set fails after a `CrashRestart`, which is the bug that fault exists to show (`fault-injector-plan.md`).
-- Decision D4: what to do with a refund that arrives before its capture. Buffer it until the capture arrives, or reject it and post nothing. Both lose the refund across a crash, and no V1 invariant notices.
+- **D4 (resolved, temporary): reject.** The hardened handler rejects a refund whose capture hasn't posted yet, and posts nothing. See Decisions below — this is explicitly not a settled design.
 
 **S2: fault injection** (`fault.rs`) → now specced in `fault-injector-plan.md`. Decisions R, C and O are approved.
 - Applying a plan is pure and draws no randomness, so shrinking never perturbs other faults. The seed only generates the initial plan.
@@ -63,9 +63,9 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 | E3 queue, E5 trait and `HandlerKind` names | — | Now |
 | F2 seed → plan | F1 | Now (F1 is on `fault-injector`) |
 | S1a scenarios, CI, frontend steps 1–7, replay-encoding spec | — | Now |
-| E6 `run()` | E3, E5, F1, approval of engine deviation 7 | After E3 and E5 |
-| S1b handlers | E5, D4 | After E5 |
-| F3 | E6, F2, approval of fault deviation 1 | After E6 |
+| E6 `run()` | E3, E5, F1 | After E3 and E5 |
+| S1b handlers | E5 | After E5 |
+| F3 | E6, F2 | After E6 |
 | S3 shrink + sweep | F3 | After F3. The sweep's chart only means something once S1b exists. |
 | S4 sim-api | S3, S1a, `HandlerKind::build` (S1b) | After S3 |
 | Frontend step 8, golden fixtures, V1 acceptance | S4, S1b | Last |
@@ -75,11 +75,12 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 - **Track B:** S1a now, S1b once E5 lands, then S4.
 - **Frontend:** steps 1–7 now, in parallel. Step 8 waits for S4.
 
-## Open decisions (for you / your partner)
-- **D1:** Fly.io or Railway (S5). The README says to decide early.
-- **D2:** V1 ships 2 card scenarios, and scenario 3 (late ACH return) is marked V2+, so the finished ACH state machine has no consumer in V1. Accept that, or pull scenario 3 into V1 and add the Batched/Settled `AchEvent`s?
-- **D3:** Model scenario 1's "retried after timeout" as a provider `Duplicate` of the Captured webhook. V4 is where client-side idempotency-key retries get their own model, so say so in the scenario description.
-- **D4:** The hardened handler's policy for a refund that arrives before its capture: buffer it or reject it (S1b).
+## Decisions (resolved 2026-10-03)
+Full rationale for each is in `specs/decisions-log.md`; summary here for the table/section references above.
+- **D1 — API host: Fly.io.** Picked per README's "pick one API host early, don't relitigate." Low-stakes; revisit only on a real deployment blocker.
+- **D2 — pull ACH into V1: yes.** The ACH state machine is already built and tested; shipping V1 without any scenario exercising it undersells the README's own headline example ("late ACH returns"). Scenario 3 moves into V1 (needs `Batched`/`Settled` `AchEvent`s, S1a).
+- **D3 — confirmed as written.** Scenario 1 models a provider-side `Duplicate`, not a client idempotency-key retry; the scenario description says so explicitly, since V4 is where idempotency keys get their own model.
+- **D4 — hardened handler rejects a refund that arrives before its capture, *for now*.** **This is a temporary resort, not a settled design.** Buffering would add handler-side mutable state whose own correctness isn't tested by anything yet — another unverified assumption on top of the exact class of bug the fault injector exists to surface — while rejecting is simpler and has an obvious failure signature. But neither choice is caught by any V1 invariant (both lose the refund across a crash), and the real fix is V4's reconciliation invariants (#5/#6) being able to judge whether a buffered-then-applied refund was handled correctly. **D4 needs a real discussion once V4 lands** — don't let "reject" calcify into the permanent answer just because it shipped first.
 
 ## Housekeeping (small, but blocks "done")
 - `main` on GitHub still exists (it's the default branch) and is behind `develop`.

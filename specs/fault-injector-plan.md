@@ -63,7 +63,7 @@ Engine deviation 1 left this to S2: a borrowed `&mut dyn EventHandler` can't be 
 **Chosen: A.**
 
 ## Other deviations from README / TODO.md (CLAUDE.md requires flagging these)
-1. **`RunResult` gains `fault_plan`, the effective plan.** README §6.1 doesn't list it. When the caller passes `None`, the generated plan has to come back, so the UI can show, edit, share and shrink it (`frontend-plan.md` ask #3). *Needs approval*, alongside engine deviation 7.
+1. **`RunResult` gains `fault_plan`, the effective plan.** README §6.1 doesn't list it. When the caller passes `None`, the generated plan has to come back, so the UI can show, edit, share and shrink it (`frontend-plan.md` ask #3). **Approved by the user, 2026-10-03**, alongside engine deviation 7.
 2. **`SimError` gets `InvalidFaultPlan(FaultError)`.** E6 adds it directly, because it applies explicit plans through F1 (engine deviation 4). No `FaultsNotSupported` error is ever added.
 3. **`seed` is used.** This resolves engine deviation 5.
 4. **`Rng::below(NonZeroU32)` becomes public.** Generation draws from ranges that are non-empty by construction, so the `Option` from `next_range` would only add an `unwrap`.
@@ -96,7 +96,7 @@ Branch `fault-injector`, one commit per piece. Each is done when its tests pass 
 
 F1 and F2 are pure and only need types that already exist, so they can land before E3, E5 and E6.
 
-**Status (2026-10-03):** decisions R, C and O are approved. F1 is done on `fault-injector` (`4ac0f87`, not merged yet), and F2 is next. Engine E6 builds on F1, applying explicit plans and crash-restarts, so F3 only adds generation and the effective plan. F3 waits on E6 and on approval of deviation 1 (`RunResult.fault_plan`).
+**Status (2026-10-03):** decisions R, C and O are approved. F1 is done on `fault-injector` (`4ac0f87`, not merged yet), and F2 is next. Engine E6 builds on F1, applying explicit plans and crash-restarts, so F3 only adds generation and the effective plan. F3 waits on E6; deviation 1 (`RunResult.fault_plan`) is approved (above). See `specs/decisions-log.md` for a consolidated view of every decision across this plan, `deterministic-engine-plan.md` and `v1-mvp-plan.md`.
 
 ---
 

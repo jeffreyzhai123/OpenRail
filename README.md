@@ -228,7 +228,7 @@ fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u32, fault
 
 **Honest limits:** ddmin guarantees **1-minimal** (removing any one remaining fault makes the test pass), not globally minimal. Each candidate is a full re-run — cap candidate runs (~500) and show progress in the UI. Removing one event can change downstream behavior, which is exactly why the fault plan is explicit data rather than re-derived from the seed each time.
 
-### 6.4 The six ledger invariants
+### 6.4 The ledger invariants
 
 1. The ledger always balances (sum of entries is zero)
 2. No money is created or destroyed by a fault
@@ -236,6 +236,7 @@ fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u32, fault
 4. Refunds never exceed captured amount
 5. After reconciliation, ledger state converges with the provider's final state
 6. No ledger entry exists without a corresponding provider event
+7. No two ledger entries share the same source event (redelivery idempotency, any entry kind — not just captures; closes a gap #3 alone misses, e.g. a replayed *refund* webhook)
 
 ### 6.5 File-by-file map
 
@@ -247,7 +248,7 @@ sim-core/src/
   event.rs        SimEvent, EventQueue (BinaryHeap ordered on (time, seq))
   ledger.rs       Ledger { accounts: BTreeMap<String, Money> }, post() rejects unbalanced entries
                   (BTreeMap, not HashMap — iteration order must be deterministic for the trace hash)
-  invariants.rs   InvariantCheck trait; the 6 invariants in §6.4
+  invariants.rs   InvariantCheck trait; the invariants in §6.4
   rails/ach.rs    AchState enum + transition(), AchEvent
   rails/card.rs   CardEvent (CardState deferred past V1)
   rails/rtp.rs    stub, deferred past V3

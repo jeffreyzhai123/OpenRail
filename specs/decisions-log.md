@@ -1,0 +1,50 @@
+# Decisions log
+
+A single place to find every decision and approved deviation spread across
+`deterministic-engine-plan.md`, `fault-injector-plan.md` and
+`v1-mvp-plan.md`. Each entry links back to the spec that owns the detailed
+rationale and test plan; this doc doesn't duplicate those, it indexes them.
+CLAUDE.md requires every deviation from README/TODO.md to be flagged and
+explicitly approved — this is the place that shows, at a glance, that every
+flagged item has been.
+
+## Approved deviations from README / TODO.md
+
+| # | Deviation | Spec | Status |
+|---|---|---|---|
+| Engine 1 | `run()` takes a handler factory, `&dyn Fn() -> Box<dyn EventHandler>` | `deterministic-engine-plan.md` | Approved |
+| Engine 2 | `run()` returns `Result<RunResult, SimError>`, not a bare `RunResult` | `deterministic-engine-plan.md` | Approved |
+| Engine 3 | `hash_run(trace, journal)` replaces `hash_trace(&[SimEvent])` (decision H) | `deterministic-engine-plan.md` | Approved |
+| Engine 4 | Faults apply through `apply_fault_plan` (F1); no `FaultsNotSupported` error | `deterministic-engine-plan.md` | Approved |
+| Engine 5 | `seed` accepted but unused until fault generation exists | `deterministic-engine-plan.md` | Approved |
+| Engine 6 | Workload `SimEvent.seq` is ignored; `EventQueue` assigns `seq` at push | `deterministic-engine-plan.md` | Approved |
+| Engine 7 | `RunResult` gains `opening: BTreeMap<String, Money>` and `journal: Vec<JournalEntry>` | `deterministic-engine-plan.md` | **Approved 2026-10-03** |
+| Engine 8 | Seed is `u32`, not `u64` (decision W) | `deterministic-engine-plan.md` | Approved |
+| Fault 1 | `RunResult` gains `fault_plan: FaultPlan`, the effective plan | `fault-injector-plan.md` | **Approved 2026-10-03** |
+| Fault 2 | `SimError` gains `InvalidFaultPlan(FaultError)` | `fault-injector-plan.md` | Approved |
+| Fault 3 | `seed` is used (resolves Engine 5 once F3 lands) | `fault-injector-plan.md` | Approved |
+| Fault 4 | `Rng::below(NonZeroU32)` becomes public | `fault-injector-plan.md` | Approved |
+
+Engine 7 and Fault 1 were the two outstanding approvals; both are now approved, which unblocks E6 and F3's dependency tables in `deterministic-engine-plan.md` and `v1-mvp-plan.md` (updated to match).
+
+## Design decisions with tradeoffs weighed
+
+| Decision | Chosen | Spec |
+|---|---|---|
+| W — seed width | `u32`, used directly as PRNG state | `deterministic-engine-plan.md` |
+| T — tick unit | 1 tick = 1 ms | `deterministic-engine-plan.md` |
+| H — what the trace hash covers | Events + journal | `deterministic-engine-plan.md` |
+| R — what `Reorder` does | `Reorder { event_id, window }`: local window reversal | `fault-injector-plan.md` |
+| C — crash-restart handler replacement | `run()` takes a handler factory | `fault-injector-plan.md` |
+| O — fault-op application order | Fixed phases: Drop, Delay, Duplicate, Reorder | `fault-injector-plan.md` |
+
+## Open decisions from `v1-mvp-plan.md`, now resolved (2026-10-03)
+
+- **D1 — API host: Fly.io.** Per README's "pick one early, don't relitigate." Low-stakes.
+- **D2 — pull ACH into V1: yes.** The ACH state machine (`rails/ach.rs`) is built and tested but had no V1 consumer; leaving it unused undersells the README's own headline example ("late ACH returns"). Scenario 3 moves into V1 — needs `Batched`/`Settled` `AchEvent`s added to `rails/ach.rs` (today it only has `Returned`) and a third scenario in `sim-scenarios` (S1a).
+- **D3 — confirmed as written.** Scenario 1 models a provider-side `Duplicate` of the Captured webhook, not a client idempotency-key retry. The scenario description must say so explicitly — idempotency keys get their own model in V4, and nothing before that should read as if they're handled.
+- **D4 — hardened handler rejects a premature refund, *for now*. Flagged as a temporary resort, not a settled design.** Neither "buffer" nor "reject" is caught by any V1 invariant (both lose the refund across a crash). Reject was chosen because buffering adds handler-side mutable state with no test coverage of its own correctness — stacking an unverified assumption on top of the exact class of bug the fault injector exists to surface. **This needs a real discussion once V4's reconciliation invariants (#5/#6) exist** and can actually judge whether a buffered-then-applied refund was handled correctly. Don't treat "reject" as final just because it shipped first.
+
+## Still genuinely open
+
+Nothing from the three specs' deviation/decision lists remains unresolved as of 2026-10-03. The one item carried forward on purpose is **D4**, which is resolved *for V1* but explicitly reopened for V4 — see above.

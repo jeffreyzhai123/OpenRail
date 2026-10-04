@@ -17,7 +17,7 @@ use crate::event::{EventId, EventKind, SimEvent};
 /// A provider redelivering a webhook after its delivery timed out.
 pub const DUPLICATE_REDELIVERY_MS: u64 = 30_000;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FaultOp {
     /// A copy with the same `EventId` arrives `DUPLICATE_REDELIVERY_MS` after
     /// the (possibly delayed) original.

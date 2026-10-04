@@ -24,6 +24,12 @@ pub struct SimEvent {
     pub kind: EventKind,
 }
 
+// Eq (derived) compares every field; Ord compares (time, seq) only, so the
+// two can disagree in general. Safe here because EventQueue::push assigns
+// seq uniquely per queue (strictly increasing), so two distinct elements of
+// one queue never tie under this Ord — proved by EventQueue's "pops are
+// strictly increasing in (time, seq)" test (deterministic-engine-plan.md,
+// E3). Don't use this Ord outside EventQueue.
 impl Ord for SimEvent {
     fn cmp(&self, other: &Self) -> Ordering {
         (self.time, self.seq).cmp(&(other.time, other.seq))

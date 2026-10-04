@@ -11,7 +11,7 @@ What A starts from:
 
 The work is split into pieces E0–E7 below. Each piece is one commit on a feature branch, merged into `develop` by PR. It names what it depends on, and is done when its own tests pass and `cargo fmt`, `cargo clippy --all-targets -- -D warnings` and `cargo test` are green.
 
-**Status (2026-10-03):** E0, E1, E2 and E4 are merged (PR #2, squash commit `3fc6ff3`). E3 and E5 are next. E6 also needs F1 (`fault-injector-plan.md`, on branch `fault-injector`) and approval of deviation 7. README §6.1/§6.5 and TODO.md were synced early, because CLAUDE.md makes the README the design source of truth. E7 covers what's left.
+**Status (2026-10-03):** E0, E1, E2 and E4 are merged (PR #2, squash commit `3fc6ff3`). E3 and E5 are next. E6 also needs F1 (`fault-injector-plan.md`, on branch `fault-injector`); deviation 7 is now approved (below). README §6.1/§6.5 and TODO.md were synced early, because CLAUDE.md makes the README the design source of truth. E7 covers what's left. See `specs/decisions-log.md` for a consolidated view of every decision across this plan, `fault-injector-plan.md` and `v1-mvp-plan.md`.
 
 ## The principle behind most decisions below
 **Every ordering is explicit, and nothing reads ambient state.** The queue orders by `(time, seq)`, ties fall back to workload slice order, JSON uses field declaration order, and the ledger uses `BTreeMap`. Nothing reads a wall clock, a randomized hasher or the environment. Second rule: **low-level code reports, `run()` decides.** The clock, queue, trace and ledger return errors, and `run()` is the one boundary that turns them into a `SimError`.
@@ -23,7 +23,7 @@ The work is split into pieces E0–E7 below. Each piece is one commit on a featu
 4. **E6 applies explicit fault plans through `apply_fault_plan` (`fault-injector-plan.md` F1), crash-restarts included. `None` means no faults until F3 adds generation.** README §6.1 doesn't say how faults run. F1 already exists, so this avoids adding a `FaultsNotSupported` error that F3 would only delete.
 5. **`seed` is accepted but not used yet.** Until faults exist, nothing random happens in a run. The determinism test still proves the pipeline has no hidden nondeterminism, such as hasher order or ambient state. It doesn't prove that seeded faults replay; it covers that once faults land.
 6. **The `seq` in workload events is ignored.** The queue assigns `seq` at push, so a scenario's slice order is its tie-break. `Scenario.workload` stays `Vec<SimEvent>` for now.
-7. **`RunResult` gains `opening` and `journal`.** *Needs approval.* README §6.1 lists only `trace`, `ledger`, `invariants` and `trace_hash`. `run()` consumes the `Ledger`, so nothing after it can recover them, and the timeline scrubber needs both (`frontend-plan.md` ask #4, `v1-mvp-plan.md` gap 1).
+7. **`RunResult` gains `opening` and `journal`.** **Approved by the user, 2026-10-03.** README §6.1 lists only `trace`, `ledger`, `invariants` and `trace_hash`. `run()` consumes the `Ledger`, so nothing after it can recover them, and the timeline scrubber needs both (`frontend-plan.md` ask #4, `v1-mvp-plan.md` gap 1).
 8. **The seed is a `u32`.** Approved by the user (decision W). README §6.1 has `seed: u64`. mulberry32 has a 32-bit state, so a wider seed only adds a fold and collisions, and a `u32` fits in a JS number.
 
 ## Decisions (settled with the user, 2026-10-03)
@@ -102,7 +102,7 @@ TODO.md hashes only the popped events.
 | E3 | Event queue (`event.rs`) | E0 | Open |
 | E4 | Trace hash (`trace.rs`) | E0 | ✅ PR #2 |
 | E5 | `EventHandler` trait and `HandlerKind` names (`handlers/mod.rs`) | E0 | Open |
-| E6 | `run()` and the determinism tests (`simulator.rs`) | E2, E3, E4, E5, F1 | Open, needs deviation 7 approved |
+| E6 | `run()` and the determinism tests (`simulator.rs`) | E2, E3, E4, E5, F1 | Open |
 | E7 | Docs sync (what the early sync left) | E6 | Open |
 
 E3 and E5 don't depend on each other. **Land E5 early:** it's tiny, and it unblocks the handlers track (`v1-mvp-plan.md` S1b) and lets sim-api name handlers. E1 isn't on `run()`'s path yet (deviation 5). Its first consumer is fault generation (S2).
