@@ -9,6 +9,13 @@ export type Handler = 'naive' | 'hardened'
 /** The seed is a u32 (deterministic-engine-plan.md, decision W). */
 export const MAX_SEED = 4_294_967_295
 
+/** sim-api rejects longer plans (crates/sim-api/src/encode.rs). */
+export const MAX_PLAN_FAULTS = 100
+
+/** How long after the original a Duplicate's copy arrives
+ * (crates/sim-core/src/fault.rs). */
+export const DUPLICATE_REDELIVERY_MS = 30_000
+
 export type CardEvent =
   | { Authorized: { charge_id: number; amount: Cents } }
   | { Captured: { charge_id: number; amount: Cents } }

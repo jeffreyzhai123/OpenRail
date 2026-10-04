@@ -22,8 +22,8 @@ covers what remains: the frontend itself.
 develops against a local sim-api (there's no fixtures mode), step 8 is
 deferred because deploy is paused, step 1 gains the Vite dev proxy, and the
 per-step journal counts the timeline needs (approved) land before step 3.
-Step 1 is done on branch `frontend-v1`; the per-step counts and step 2 are
-next.
+Step 1, the per-step counts and step 2 are done on branch `frontend-v1`;
+step 3 is next.
 
 ## Principles (unchanged from the original plan)
 
@@ -162,10 +162,12 @@ frontend/  package.json  vite.config.ts (dev proxy /api -> :3000, strips /api: s
   src/lib/                         pure, unit-tested, no React
     money.ts      formatCents()    BigInt, mirrors Rust Display ("-12.34"); UI adds the "$"
     seed.ts                        validate a u32 integer; random seed is one crypto.getRandomValues(Uint32Array) value
-    balances.ts   balancesAt(opening, journal, k)  display-only fold; the full fold must equal
+    balances.ts   balancesByStep(run)  the balances after every step, folding exactly the
+                                   entries each step posted (`posted`); the final fold must equal
                                    ledger.accounts or it throws (contract drift -> error banner)
+    time.ts       formatDuration() simulated ms as "250 ms", "1.5 s", "3 d", for faults and the timeline
     faultPlan.ts                   describe / add / remove / update a FaultOp; shape checks only
-    replayLink.ts                  build/parse the fragment
+    replayLink.ts                  build/parse the fragment; verify() picks the badge state
   src/state/appState.ts            reducer: inputs, request status, last run, selected step, shrink, sweep
   src/components/
     Controls.tsx        scenario picker + description, seed input + random button, handler toggle, Run / Share
