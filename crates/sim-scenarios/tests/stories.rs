@@ -4,7 +4,8 @@
 
 use std::collections::BTreeSet;
 
-use sim_core::fault::FaultPlan;
+use sim_core::event::EventId;
+use sim_core::fault::{FaultOp, FaultPlan};
 use sim_core::handlers::HandlerKind;
 use sim_core::invariants::{
     REFUND_WITHIN_CAPTURE, SINGLE_CAPTURE_PER_INTENT, SINGLE_ENTRY_PER_SOURCE_EVENT,
@@ -85,4 +86,21 @@ fn story_plans_leave_hardened_green() {
         let result = run_scenario(&scenario, &scenario.story_plan, HandlerKind::Hardened);
         assert_eq!(failed(&result), BTreeSet::new(), "{}", scenario.id);
     }
+}
+
+#[test]
+fn hardened_survives_a_dropped_ach_initiation() {
+    // The return then arrives for a debit that never posted. Naive reverses
+    // money that never moved in; hardened rejects the return, as it does a
+    // card refund before its capture (D4).
+    let scenario = sim_scenarios::find("late-ach-return").unwrap();
+    let plan = vec![FaultOp::Drop {
+        event_id: EventId(1),
+    }];
+
+    let naive = run_scenario(&scenario, &plan, HandlerKind::Naive);
+    assert_eq!(failed(&naive), BTreeSet::from([REFUND_WITHIN_CAPTURE]));
+
+    let hardened = run_scenario(&scenario, &plan, HandlerKind::Hardened);
+    assert_eq!(failed(&hardened), BTreeSet::new());
 }

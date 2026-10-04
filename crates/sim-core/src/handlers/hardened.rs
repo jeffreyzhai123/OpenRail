@@ -4,8 +4,8 @@ use crate::rails::ach::AchEvent;
 use crate::rails::card::CardEvent;
 
 use super::{
-    EventHandler, ach_capture_entry, ach_refund_entry, already_captured, already_posted,
-    capture_entry, card_intent, refund_entry,
+    EventHandler, ach_capture_entry, ach_intent, ach_refund_entry, already_captured,
+    already_posted, capture_entry, card_intent, refund_entry,
 };
 
 /// Everything checked against `ledger.journal()`, never memory — nothing to
@@ -37,7 +37,13 @@ impl EventHandler for HardenedHandler {
             }
             EventKind::Ach(AchEvent::Returned {
                 entry_id, amount, ..
-            }) => ach_refund_entry(event.id, *entry_id, *amount),
+            }) => {
+                if already_captured(ledger, &ach_intent(*entry_id)) {
+                    ach_refund_entry(event.id, *entry_id, *amount)
+                } else {
+                    None // same as D4: reject a return whose debit never posted
+                }
+            }
             _ => None,
         };
         entry.into_iter().collect()
@@ -49,6 +55,7 @@ mod tests {
     use super::*;
     use crate::event::EventId;
     use crate::money::Money;
+    use crate::rails::ach::{AchEntryId, AchReturnCode};
     use crate::rails::card::ChargeId;
 
     fn ledger() -> Ledger {
@@ -144,5 +151,44 @@ mod tests {
         post(&mut ledger, &mut HardenedHandler, &captured(1, 1, 500));
         let mut restarted = HardenedHandler;
         assert_eq!(post(&mut ledger, &mut restarted, &captured(1, 1, 500)), 0);
+    }
+
+    fn ach(id: u64, kind: AchEvent) -> SimEvent {
+        event(id, EventKind::Ach(kind))
+    }
+
+    fn ach_return(id: u64) -> SimEvent {
+        ach(
+            id,
+            AchEvent::Returned {
+                entry_id: AchEntryId(1),
+                code: AchReturnCode::R01,
+                amount: Money(700),
+            },
+        )
+    }
+
+    #[test]
+    fn ach_return_before_its_initiation_is_rejected() {
+        // E.g. a Drop fault lost the Initiated webhook: refunding here would
+        // reverse money that never moved in.
+        let mut handler = HardenedHandler;
+        let mut ledger = ledger();
+        assert_eq!(post(&mut ledger, &mut handler, &ach_return(2)), 0);
+    }
+
+    #[test]
+    fn ach_return_after_its_initiation_posts() {
+        let mut handler = HardenedHandler;
+        let mut ledger = ledger();
+        let initiated = ach(
+            1,
+            AchEvent::Initiated {
+                entry_id: AchEntryId(1),
+                amount: Money(700),
+            },
+        );
+        assert_eq!(post(&mut ledger, &mut handler, &initiated), 1);
+        assert_eq!(post(&mut ledger, &mut handler, &ach_return(2)), 1);
     }
 }
