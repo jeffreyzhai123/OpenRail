@@ -1,13 +1,18 @@
 //! The router. Building it is pure, so tests drive it with `oneshot` and no
 //! network.
 
+use axum::extract::DefaultBodyLimit;
 use axum::http::{HeaderValue, Method, StatusCode, header};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::{Value, json};
 use tower_http::cors::CorsLayer;
 
 use crate::error::{ApiError, METHOD_NOT_ALLOWED, NOT_FOUND};
+use crate::routes::{run, scenarios};
+
+/// Requests carry at most a 100-fault plan, which is a few KB of JSON.
+pub const MAX_BODY_BYTES: usize = 64 * 1024;
 
 /// With an `allowed_origin`, the static frontend on that origin may call the
 /// API (frontend ask #6). Without one, there's no CORS, which suits local
@@ -15,8 +20,11 @@ use crate::error::{ApiError, METHOD_NOT_ALLOWED, NOT_FOUND};
 pub fn app(allowed_origin: Option<HeaderValue>) -> Router {
     let router = Router::new()
         .route("/health", get(health))
+        .route("/scenarios", get(scenarios::list_scenarios))
+        .route("/run", post(run::post_run))
         .fallback(not_found)
-        .method_not_allowed_fallback(method_not_allowed);
+        .method_not_allowed_fallback(method_not_allowed)
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES));
     match allowed_origin {
         Some(origin) => router.layer(
             CorsLayer::new()

@@ -633,6 +633,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sim-core",
+ "sim-scenarios",
  "tokio",
  "tower",
  "tower-http",
