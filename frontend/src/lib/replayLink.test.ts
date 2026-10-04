@@ -1,7 +1,12 @@
 import { expect, test } from 'vitest'
 import type { RunResponse } from '../api/types'
 import { fixture } from '../test/fixtures'
-import { parseReplayFragment, replayFragment, verify } from './replayLink'
+import {
+  parseReplayFragment,
+  replayFragment,
+  shareUrl,
+  verify,
+} from './replayLink'
 
 function storyRun(): RunResponse {
   return fixture('run-charge-retry-naive.json') as RunResponse
@@ -44,4 +49,20 @@ test('the badge compares the hashes', () => {
   expect(verify(hash, hash)).toBe('verified')
   expect(verify(`${hash.slice(1)}0`, hash)).toBe('mismatch')
   expect(verify(null, hash)).toBe('unverified')
+})
+
+test("a share link is this page's address with the run's fragment", () => {
+  const run = storyRun()
+  const fragment = replayFragment(run.replay, run.trace_hash)
+  expect(shareUrl('http://localhost:5173/', run.replay, run.trace_hash)).toBe(
+    `http://localhost:5173/${fragment}`,
+  )
+  // Opened from a link, the page's old fragment is replaced, not appended to.
+  expect(
+    shareUrl(
+      'http://localhost:5173/?x=1#r=1.old&h=00',
+      run.replay,
+      run.trace_hash,
+    ),
+  ).toBe(`http://localhost:5173/?x=1${fragment}`)
 })

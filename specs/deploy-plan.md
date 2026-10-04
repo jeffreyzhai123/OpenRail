@@ -6,7 +6,7 @@ README §3 V1 ends with "deployed and smoke-tested against the real backend", an
 What's ready:
 - `sim-api` binds `0.0.0.0:$PORT`, reads `ALLOWED_ORIGIN` for CORS, answers `GET /health`, and shuts down gracefully on SIGTERM (`sim-api-plan.md`).
 - Golden fixtures of its responses are committed in `frontend/src/api/fixtures/`.
-- The frontend's core loop and fault plan editor run against a local sim-api (steps 1–4). Steps 5–7 are still open, and step 8 is this plan's smoke test.
+- The frontend's core loop, fault plan editor and share links run against a local sim-api (steps 1–5). Steps 6–7 are still open, and step 8 is this plan's smoke test.
 
 Constraints found while planning:
 - **The repo is private**, and your access is write, not admin. So **GitHub Pages is out**: it needs a paid plan and an admin to enable it.
@@ -136,7 +136,7 @@ Runs on every pull request and on pushes to `develop` and `main`.
 | The API URL is baked in at build time | Vite inlines `VITE_*` variables, and a static site has no runtime config. Changing the API's URL means rebuilding the web image, which CD does anyway. |
 | nginx defaults | Vite's hashed asset names already make caching safe. Tuning cache headers is YAGNI for V1. |
 
-Until frontend steps 5–7 land, this deploys what's done (steps 1–4). That's enough to prove the pipeline and CORS. Without `VITE_API_BASE_URL` the app calls `/api`, which only the Vite dev proxy serves, so the production build must set it.
+Until frontend steps 6–7 land, this deploys what's done (steps 1–5). That's enough to prove the pipeline and CORS. Without `VITE_API_BASE_URL` the app calls `/api`, which only the Vite dev proxy serves, so the production build must set it.
 
 ## DP4: `scripts/smoke.sh API_URL [WEB_URL]`
 It uses bash, `curl` and `jq`, and exits non-zero on the first failure.
@@ -184,7 +184,7 @@ Then I run `scripts/smoke.sh https://openrail-api.fly.dev https://openrail-web.f
 - **CLAUDE.md:** `scripts/smoke.sh` in Commands (deviation 3).
 
 ## What stays after this plan
-V1's acceptance (`v1-mvp-plan.md`, "Verification") is a walkthrough of the **finished UI** on the deployed URL. That needs frontend steps 1–7 (1–4 are done), plus step 8, which is this plan's smoke test. This plan makes it a push to `main` once those steps land.
+V1's acceptance (`v1-mvp-plan.md`, "Verification") is a walkthrough of the **finished UI** on the deployed URL. That needs frontend steps 1–7 (1–5 are done), plus step 8, which is this plan's smoke test. This plan makes it a push to `main` once those steps land.
 
 ## Files
 - New: `.github/workflows/ci.yml`, `rust-toolchain.toml`, `Dockerfile.api`, `Dockerfile.web`, `.dockerignore`, `fly.api.toml`, `fly.web.toml` and `scripts/smoke.sh`.

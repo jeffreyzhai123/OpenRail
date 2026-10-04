@@ -10,6 +10,7 @@ import type {
 } from '../api/types'
 import type { Balances } from '../lib/balances'
 import { plansEqual } from '../lib/faultPlan'
+import { verify, type Verification } from '../lib/replayLink'
 import { parseSeed } from '../lib/seed'
 
 export interface CompletedRun {
@@ -18,6 +19,9 @@ export interface CompletedRun {
   balances: Balances[]
   /** How many deliveries the panels show applied: 0 to trace.length. */
   step: number
+  /** Set when the run came from a share link: the hash the link promised,
+   * and whether the recomputed run reproduced it. */
+  link: { expected: string | null; verification: Verification } | null
 }
 
 export interface AppState {
@@ -32,6 +36,8 @@ export interface AppState {
   /** The plan sim-api generated for this scenario and seed, once a run on
    * the generated plan has shown it. The handler doesn't change it. */
   seedPlan: FaultOp[] | null
+  /** The plan a share link loaded, so the editor can say where it came from. */
+  linkPlan: FaultOp[] | null
   status: 'loading' | 'ready' | 'running'
   run: CompletedRun | null
   error: unknown
@@ -43,7 +49,15 @@ export type Action =
   | { type: 'seedEdited'; text: string }
   | { type: 'handlerPicked'; handler: Handler }
   | { type: 'runStarted' }
+  | { type: 'replayStarted' }
   | { type: 'runSucceeded'; response: RunResponse; balances: Balances[] }
+  | {
+      type: 'replaySucceeded'
+      response: RunResponse
+      balances: Balances[]
+      /** The trace hash the link promised, if it carried one. */
+      expected: string | null
+    }
   | { type: 'failed'; error: unknown }
   | { type: 'stepSelected'; step: number }
   | { type: 'planEdited'; plan: FaultOp[] }
@@ -57,6 +71,7 @@ export const initialState: AppState = {
   handler: 'naive',
   plan: null,
   seedPlan: null,
+  linkPlan: null,
   status: 'loading',
   run: null,
   error: null,
@@ -84,6 +99,7 @@ export function reducer(state: AppState, action: Action): AppState {
         scenarioId: scenario.id,
         plan: scenario.story_plan,
         seedPlan: null,
+        linkPlan: null,
         run: null,
         error: null,
       }
@@ -99,6 +115,7 @@ export function reducer(state: AppState, action: Action): AppState {
         seed,
         plan: null,
         seedPlan: null,
+        linkPlan: null,
         run: null,
       }
     }
@@ -106,6 +123,10 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, handler: action.handler, run: null }
     case 'runStarted':
       return { ...state, status: 'running', error: null }
+    case 'replayStarted':
+      // A link names other inputs, so the shown run no longer applies, even
+      // if the link then fails to replay.
+      return { ...state, status: 'running', error: null, run: null }
     case 'runSucceeded':
       return {
         ...state,
@@ -114,12 +135,28 @@ export function reducer(state: AppState, action: Action): AppState {
         // run's: the response carries what sim-api generated for it.
         seedPlan:
           state.plan === null ? action.response.fault_plan : state.seedPlan,
-        run: {
-          response: action.response,
-          balances: action.balances,
-          step: action.response.trace.length,
-        },
+        run: completed(action.response, action.balances, null),
       }
+    case 'replaySucceeded': {
+      const { response } = action
+      // The link's inputs become the current ones, so the controls show
+      // exactly what was replayed and Run reproduces it.
+      return {
+        ...state,
+        status: 'ready',
+        scenarioId: response.scenario_id,
+        seedText: String(response.seed),
+        seed: response.seed,
+        handler: response.handler,
+        plan: response.fault_plan,
+        seedPlan: null,
+        linkPlan: response.fault_plan,
+        run: completed(response, action.balances, {
+          expected: action.expected,
+          verification: verify(action.expected, response.trace_hash),
+        }),
+      }
+    }
     case 'failed':
       return { ...state, status: 'ready', error: action.error }
     case 'stepSelected': {
@@ -136,6 +173,14 @@ export function reducer(state: AppState, action: Action): AppState {
       return scenario ? withPlan(state, scenario.story_plan) : state
     }
   }
+}
+
+function completed(
+  response: RunResponse,
+  balances: Balances[],
+  link: CompletedRun['link'],
+): CompletedRun {
+  return { response, balances, step: response.trace.length, link }
 }
 
 /** A different plan clears the shown run, which the old plan produced. */

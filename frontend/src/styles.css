@@ -366,3 +366,64 @@ tr.changed td:last-child {
   color: var(--accent);
   font-weight: 600;
 }
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.share {
+  display: grid;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.share button {
+  justify-self: start;
+}
+
+.share-link {
+  width: 100%;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.replay-badge {
+  border-width: 2px;
+}
+
+.replay-badge.verified {
+  border-color: var(--pass);
+}
+
+.replay-badge.verified h2 {
+  color: var(--pass);
+}
+
+.replay-badge.mismatch {
+  border-color: var(--fail);
+}
+
+.replay-badge.mismatch h2 {
+  color: var(--fail);
+}
+
+.replay-badge dl {
+  display: grid;
+  gap: 2px;
+  margin: 8px 0 0;
+}
+
+.replay-badge dt {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.replay-badge dd {
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+}

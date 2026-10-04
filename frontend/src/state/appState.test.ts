@@ -179,3 +179,61 @@ describe('the fault plan', () => {
     expect(reducer(state, { type: 'planReset', to: 'story' })).toBe(state)
   })
 })
+
+describe('replaying a share link', () => {
+  function replayed(expected: string | null): AppState {
+    const response = fixture('replay.json') as RunResponse
+    const started = reducer(loaded(), { type: 'runStarted' })
+    return reducer(started, {
+      type: 'replaySucceeded',
+      response,
+      balances: balancesByStep(response),
+      expected,
+    })
+  }
+
+  test("the link's inputs become the current ones", () => {
+    const response = fixture('replay.json') as RunResponse
+    const state = replayed(response.trace_hash)
+    expect(state.status).toBe('ready')
+    expect(runRequest(state)).toEqual({
+      scenario_id: response.scenario_id,
+      seed: response.seed,
+      handler: response.handler,
+      fault_plan: response.fault_plan,
+    })
+    expect(state.seedText).toBe(String(response.seed))
+    expect(state.linkPlan).toEqual(response.fault_plan)
+  })
+
+  test('the run records what the link promised and whether it held', () => {
+    const { trace_hash } = fixture('replay.json') as RunResponse
+    expect(replayed(trace_hash).run?.link).toEqual({
+      expected: trace_hash,
+      verification: 'verified',
+    })
+    expect(replayed('00').run?.link?.verification).toBe('mismatch')
+    expect(replayed(null).run?.link?.verification).toBe('unverified')
+  })
+
+  test('a replay starting clears the shown run; a run starting keeps it', () => {
+    const shown = withRun(loaded())
+    expect(reducer(shown, { type: 'replayStarted' }).run).toBeNull()
+    expect(reducer(shown, { type: 'runStarted' }).run).toBe(shown.run)
+  })
+
+  test('an ordinary run carries no link', () => {
+    expect(withRun(loaded()).run?.link).toBeNull()
+  })
+
+  test('a new scenario or seed forgets the link plan', () => {
+    const state = replayed(null)
+    expect(
+      reducer(state, { type: 'scenarioPicked', id: scenarios()[1].id })
+        .linkPlan,
+    ).toBeNull()
+    expect(
+      reducer(state, { type: 'seedEdited', text: '9' }).linkPlan,
+    ).toBeNull()
+  })
+})

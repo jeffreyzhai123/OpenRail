@@ -15,6 +15,16 @@ export function replayFragment(replay: string, traceHash: string): string {
   return `#${new URLSearchParams({ r: replay, h: traceHash })}`
 }
 
+/** The page's own address with this run's link as its fragment, replacing
+ * any link it already holds. */
+export function shareUrl(
+  pageUrl: string,
+  replay: string,
+  traceHash: string,
+): string {
+  return pageUrl.split('#')[0] + replayFragment(replay, traceHash)
+}
+
 /** The link in a fragment (with or without its `#`), or `null` if it holds
  * no replay. */
 export function parseReplayFragment(fragment: string): ReplayLink | null {

@@ -3,7 +3,7 @@
 ## Context
 README §3 defines V1 as "a working, deployed, deterministic simulator proving the core loop end to end: inject a fault, watch it break the naive handler, share the exact failure as a link." This compares each V1 feature against `develop` at `43082a7`, with row 1 rechecked at `3fc6ff3` (PR #2).
 
-**Bottom line (updated 2026-10-03):** 9 of the 11 V1 features are done, plus `sim-api`: engine, ledger/invariants, ACH, handlers, fault injection, replay links, shrink, sweep, and all 3 scenarios. **What's left is the frontend (steps 1–4 of 7 done, step 5 next) and deploy (planned and approved, but paused)** — see `v1-frontend-tasks.md` and `deploy-plan.md`.
+**Bottom line (updated 2026-10-03):** 9 of the 11 V1 features are done, plus `sim-api`: engine, ledger/invariants, ACH, handlers, fault injection, replay links, shrink, sweep, and all 3 scenarios. **What's left is the frontend (steps 1–5 of 7 done, step 6 next) and deploy (planned and approved, but paused)** — see `v1-frontend-tasks.md` and `deploy-plan.md`.
 
 ## Feature status (README §3 V1)
 | # | V1 feature | Status | Spec |
@@ -17,7 +17,7 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 | 7 | Shrinker, single-pass greedy | ✅ Done: `shrink_plan()` and `shrink_run()` (SK1, SK2) | ✅ `shrink-sweep-plan.md` |
 | 8 | Sweep harness (naive vs hardened failure rate) | ✅ Done: `sweep()` (SW1). Over seeds 0..1,000, hardened fails 0 runs on every scenario, and naive 40–62% (SW2) | ✅ `shrink-sweep-plan.md` |
 | 9 | 2–3 playable scenarios | ✅ Done: `charge-retry`, `refund-before-capture`, `late-ach-return`, each with a story plan, tested end to end through `run()` | ✅ `scenarios-plan.md` |
-| 10 | Minimal UI: timeline, balances, invariants, Run/Shrink/Share | 🟡 Run, timeline, balances, invariants and the fault plan editor work against a local sim-api (steps 1–4). Share, Shrink and Sweep are left (steps 5–7) | ✅ `v1-frontend-tasks.md` |
+| 10 | Minimal UI: timeline, balances, invariants, Run/Shrink/Share | 🟡 Run, timeline, balances, invariants, the fault plan editor and Share (replay links, verified on open) work against a local sim-api (steps 1–5). Shrink and Sweep are left (steps 6–7) | ✅ `v1-frontend-tasks.md` |
 | 11 | Deployed + smoke-tested against the real backend | ⏸ Paused. Host chosen (D1: Fly.io) and the plan's decisions approved, but nothing built: DP1 (CI) was written, then reverted | ✅ `deploy-plan.md` |
 | — | `sim-api` (Axum routes the UI calls) | ✅ Done: all routes, the error envelope, replay encoding, and golden fixtures (API1–API7). `RunResponse` later gained `posted` for the timeline (Frontend 1, `75443b2`) | ✅ `sim-api-plan.md` |
 
@@ -57,7 +57,7 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 - Then the smoke test: `scripts/smoke.sh` and the walkthrough from `v1-frontend-tasks.md` against the deployed API.
 
 ## Critical path and parallel tracks
-**Critical path:** ~~E3 + E5 → E6 (also needs F1) → F3 (also needs F2) → S3 → S4 → frontend steps 1–4~~ → frontend steps 5–7 → S5 and frontend step 8 (both paused). Everything struck through is done.
+**Critical path:** ~~E3 + E5 → E6 (also needs F1) → F3 (also needs F2) → S3 → S4 → frontend steps 1–5~~ → frontend steps 6–7 → S5 and frontend step 8 (both paused). Everything struck through is done.
 
 | Work | Needs | Status |
 |---|---|---|
@@ -68,14 +68,14 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 | S3 shrink + sweep | F3, S1b | ✅ Done |
 | S4 sim-api | S3, S1a, S1b | ✅ Done |
 | Per-step journal counts (`posted`) | S4 | ✅ Done (`75443b2`, on `develop`) |
-| Frontend steps 1–4: contract, `lib/`, core loop, fault editor | S4, `posted` | ✅ Done (`v1-frontend-tasks.md` status) |
-| Frontend steps 5–7: share/replay, shrink, sweep | Steps 1–4 | Step 5 next |
+| Frontend steps 1–5: contract, `lib/`, core loop, fault editor, share/replay | S4, `posted` | ✅ Done (`v1-frontend-tasks.md` status) |
+| Frontend steps 6–7: shrink, sweep | Steps 1–5 | Step 6 next |
 | CI (deploy plan DP1) | — | ⏸ Paused with deploy; DP1 was written, then reverted |
 | S5 deploy, frontend step 8, V1 acceptance | S4 (done), frontend steps 1–7, D1 (Fly.io) | ⏸ Paused. The golden fixtures the smoke test compares against are done (`sim-api-plan.md` API6) |
 
 - **Track A (engine owner):** E5 first (it unblocks S1b), E3, E6, then F2/F3, then S3. ✅ Done.
 - **Track B:** S1a now, S1b once E5 lands, then S4. ✅ Done.
-- **Frontend:** steps 1–4 done; steps 5–7 next, in order. Step 8 waits for deploy.
+- **Frontend:** steps 1–5 done; steps 6–7 next, in order. Step 8 waits for deploy.
 
 ## Decisions (resolved 2026-10-03)
 Full rationale for each is in `specs/decisions-log.md`; summary here for the table/section references above.

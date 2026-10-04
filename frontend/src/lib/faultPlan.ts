@@ -186,17 +186,19 @@ function buildFault({
 }
 
 /** Where the plan the editor shows came from. `null` is the seed's plan,
- * which sim-api generates; an explicit plan that matches neither the story
- * nor the seed's known plan has been edited. */
-export type PlanOrigin = 'story' | 'seed' | 'edited'
+ * which sim-api generates; an explicit plan that matches neither the story,
+ * the seed's known plan nor a share link's plan has been edited. */
+export type PlanOrigin = 'story' | 'seed' | 'link' | 'edited'
 
 export function planOrigin(
   plan: readonly FaultOp[] | null,
   story: readonly FaultOp[],
   seedPlan: readonly FaultOp[] | null,
+  linkPlan: readonly FaultOp[] | null,
 ): PlanOrigin {
   if (plan === null) return 'seed'
   if (plansEqual(plan, story)) return 'story'
   if (seedPlan !== null && plansEqual(plan, seedPlan)) return 'seed'
+  if (linkPlan !== null && plansEqual(plan, linkPlan)) return 'link'
   return 'edited'
 }

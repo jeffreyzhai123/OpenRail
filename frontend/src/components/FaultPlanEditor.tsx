@@ -18,6 +18,8 @@ interface FaultPlanEditorProps {
   plan: FaultOp[] | null
   /** What sim-api generated for this seed, once a run has shown it. */
   seedPlan: FaultOp[] | null
+  /** The plan a share link loaded. */
+  linkPlan: FaultOp[] | null
   storyPlan: FaultOp[]
   seed: number | null
   workload: SimEvent[]
@@ -29,12 +31,20 @@ interface FaultPlanEditorProps {
  * scenario's story or the seed's generated plan. */
 export function FaultPlanEditor(props: FaultPlanEditorProps) {
   const shown = props.plan ?? props.seedPlan
-  const origin = planOrigin(props.plan, props.storyPlan, props.seedPlan)
+  const origin = planOrigin(
+    props.plan,
+    props.storyPlan,
+    props.seedPlan,
+    props.linkPlan,
+  )
   const fromSeed =
     props.seed === null ? 'from the seed' : `from seed ${props.seed}`
-  const label = { story: 'story plan', seed: fromSeed, edited: 'edited' }[
-    origin
-  ]
+  const label = {
+    story: 'story plan',
+    seed: fromSeed,
+    link: 'from the link',
+    edited: 'edited',
+  }[origin]
 
   return (
     <div className="field fault-plan">

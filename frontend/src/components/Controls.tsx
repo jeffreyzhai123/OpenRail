@@ -1,6 +1,7 @@
 import type { FaultOp, Handler, ScenarioSummary } from '../api/types'
 import { MAX_SEED } from '../api/types'
 import { FaultPlanEditor } from './FaultPlanEditor'
+import { ShareButton } from './ShareButton'
 
 interface ControlsProps {
   scenarios: ScenarioSummary[]
@@ -11,6 +12,8 @@ interface ControlsProps {
   plan: FaultOp[] | null
   /** What sim-api generated for this scenario and seed, once a run showed it. */
   seedPlan: FaultOp[] | null
+  /** The plan a share link loaded. */
+  linkPlan: FaultOp[] | null
   running: boolean
   canRun: boolean
   onScenario: (id: string) => void
@@ -20,6 +23,8 @@ interface ControlsProps {
   onPlanChange: (plan: FaultOp[]) => void
   onPlanReset: (to: 'story' | 'seed') => void
   onRun: () => void
+  /** The shown run's share link, or `null` with no run to share. */
+  shareUrl: string | null
 }
 
 const HANDLERS: [Handler, string][] = [
@@ -96,6 +101,7 @@ export function Controls(props: ControlsProps) {
             key={scenario.id}
             plan={props.plan}
             seedPlan={props.seedPlan}
+            linkPlan={props.linkPlan}
             storyPlan={scenario.story_plan}
             seed={props.seed}
             workload={scenario.workload}
@@ -105,14 +111,20 @@ export function Controls(props: ControlsProps) {
         )}
       </fieldset>
 
-      <button
-        type="button"
-        className="primary"
-        disabled={!props.canRun}
-        onClick={props.onRun}
-      >
-        {props.running ? 'Running…' : 'Run'}
-      </button>
+      <div className="actions">
+        <button
+          type="button"
+          className="primary"
+          disabled={!props.canRun}
+          onClick={props.onRun}
+        >
+          {props.running ? 'Running…' : 'Run'}
+        </button>
+        {/* Keyed by link, so a new run's link starts uncopied. */}
+        {props.shareUrl && (
+          <ShareButton key={props.shareUrl} url={props.shareUrl} />
+        )}
+      </div>
     </section>
   )
 }

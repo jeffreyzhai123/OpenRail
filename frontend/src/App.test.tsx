@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import App from './App'
 import { ApiError, NetworkError, type SimClient } from './api/client'
 import {
@@ -11,6 +11,7 @@ import {
   type ShrinkResponse,
 } from './api/types'
 import { describeFault } from './lib/faultPlan'
+import { parseReplayFragment, replayFragment } from './lib/replayLink'
 import { fixture } from './test/fixtures'
 
 const notYet = () => Promise.reject(new Error('not used by the core loop'))
@@ -384,6 +385,193 @@ describe('editing the fault plan', () => {
       'disabled',
       true,
     )
+  })
+})
+
+describe('share links', () => {
+  const linked = () => fixture('replay.json') as RunResponse
+
+  /** Opens the app on a share link, as a new tab would. */
+  async function openLink(fragment: string, response: RunResponse = linked()) {
+    window.history.replaceState(null, '', `/${fragment}`)
+    const encoded: string[] = []
+    const app = await renderApp({
+      replay: async (replay) => {
+        encoded.push(replay)
+        return response
+      },
+    })
+    return { ...app, encoded }
+  }
+
+  afterEach(() => {
+    window.history.replaceState(null, '', '/')
+    vi.restoreAllMocks()
+  })
+
+  test('Share copies a link that replays this run', async () => {
+    const { user } = await renderApp()
+    expect(screen.queryByRole('button', { name: 'Share' })).toBeNull()
+    await run(user)
+    await user.click(screen.getByRole('button', { name: 'Share' }))
+
+    expect(screen.getByText('Link copied.')).toBeDefined()
+    const copied = new URL(await navigator.clipboard.readText())
+    const response = fixture('run-charge-retry-naive.json') as RunResponse
+    expect(parseReplayFragment(copied.hash)).toEqual({
+      replay: response.replay,
+      traceHash: response.trace_hash,
+    })
+  })
+
+  test('when copying fails, the link is shown to copy by hand', async () => {
+    const { user } = await renderApp()
+    await run(user)
+    vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(
+      new Error('denied'),
+    )
+    await user.click(screen.getByRole('button', { name: 'Share' }))
+
+    expect(await screen.findByText(/Couldn't copy/)).toBeDefined()
+    const link = screen.getByRole('textbox', { name: 'Share link' })
+    expect((link as HTMLInputElement).value).toContain(linked().replay)
+  })
+
+  test('opening a link replays it, verified, with its inputs loaded', async () => {
+    const response = linked()
+    const { encoded } = await openLink(
+      replayFragment(response.replay, response.trace_hash),
+    )
+    expect(
+      await screen.findByRole('heading', {
+        name: '✓ Replay verified identical',
+      }),
+    ).toBeDefined()
+    expect(encoded).toEqual([response.replay])
+    expect(
+      (screen.getByRole('combobox', { name: 'Scenario' }) as HTMLSelectElement)
+        .value,
+    ).toBe(response.scenario_id)
+    expect(
+      (screen.getByRole('textbox', { name: 'Seed' }) as HTMLInputElement).value,
+    ).toBe(String(response.seed))
+    expect(screen.getByRole('radio', { name: 'Naive' })).toHaveProperty(
+      'checked',
+      true,
+    )
+    expect(shownFaults()).toEqual(response.fault_plan.map(describeFault))
+  })
+
+  test("a plan that isn't the story's is labelled as the link's", async () => {
+    const response = { ...linked(), fault_plan: [{ Drop: { event_id: 3 } }] }
+    await openLink(
+      replayFragment(response.replay, response.trace_hash),
+      response,
+    )
+    await screen.findByRole('heading', { name: /Replay/ })
+    expect(screen.getByText('from the link')).toBeDefined()
+  })
+
+  test('a different hash is a determinism break, showing both', async () => {
+    const response = linked()
+    const promised = '0'.repeat(64)
+    await openLink(replayFragment(response.replay, promised))
+    expect(
+      await screen.findByRole('heading', { name: '✗ Determinism break' }),
+    ).toBeDefined()
+    expect(screen.getByText(promised)).toBeDefined()
+    expect(screen.getByText(response.trace_hash)).toBeDefined()
+  })
+
+  test('a link without a hash replays unverified', async () => {
+    await openLink(`#r=${linked().replay}`)
+    expect(
+      await screen.findByRole('heading', { name: 'Replay unverified' }),
+    ).toBeDefined()
+  })
+
+  test("a link this server can't read says so, and the app still runs", async () => {
+    window.history.replaceState(null, '', '/#r=2.abc&h=ff')
+    await renderApp({
+      replay: () =>
+        Promise.reject(
+          new ApiError(422, 'unsupported_encoding_version', 'server wording'),
+        ),
+    })
+    const banner = await screen.findByRole('alert')
+    expect(banner.textContent).toBe(
+      "This share link uses an encoding version this server doesn't read.",
+    )
+    expect(screen.getByRole('button', { name: 'Run' })).toHaveProperty(
+      'disabled',
+      false,
+    )
+  })
+
+  test('a link pasted into the open tab replays too', async () => {
+    const response = linked()
+    const { encoded } = await openLink('')
+    window.location.hash = replayFragment(response.replay, response.trace_hash)
+    expect(
+      await screen.findByRole('heading', {
+        name: '✓ Replay verified identical',
+      }),
+    ).toBeDefined()
+    expect(encoded).toEqual([response.replay])
+  })
+
+  test("a link that fails leaves no earlier link's run on screen", async () => {
+    const response = linked()
+    window.history.replaceState(
+      null,
+      '',
+      `/${replayFragment(response.replay, response.trace_hash)}`,
+    )
+    await renderApp({
+      replay: async (replay) => {
+        if (replay.startsWith('2.')) {
+          throw new ApiError(422, 'unsupported_encoding_version', 'v2')
+        }
+        return response
+      },
+    })
+    await screen.findByRole('heading', { name: /Replay verified/ })
+
+    window.location.hash = '#r=2.abc&h=ff'
+    expect(await screen.findByRole('alert')).toBeDefined()
+    expect(screen.queryByRole('heading', { name: /Replay/ })).toBeNull()
+    expect(screen.queryByRole('heading', { name: /invariants/ })).toBeNull()
+  })
+
+  test('scenarios arriving after unmount leave no link listener', async () => {
+    let arrive: (scenarios: ScenarioSummary[]) => void = () => {}
+    const encoded: string[] = []
+    const { client } = stubClient({
+      // Ignores the abort signal, like a response already on its way.
+      scenarios: () => new Promise((resolve) => (arrive = resolve)),
+      replay: async (replay) => {
+        encoded.push(replay)
+        return linked()
+      },
+    })
+    const { unmount } = render(<App client={client} />)
+    unmount()
+    arrive(fixture('scenarios.json') as ScenarioSummary[])
+    await Promise.resolve()
+
+    window.location.hash = replayFragment(linked().replay, linked().trace_hash)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(encoded).toEqual([])
+  })
+
+  test('running after a replay drops the badge', async () => {
+    const response = linked()
+    const { user } = await openLink(
+      replayFragment(response.replay, response.trace_hash),
+    )
+    await screen.findByRole('heading', { name: /Replay/ })
+    await run(user)
+    expect(screen.queryByRole('heading', { name: /Replay/ })).toBeNull()
   })
 })
 

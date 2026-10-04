@@ -167,10 +167,15 @@ describe('where a plan came from', () => {
     [[delay, drop], null, 'edited'],
     [[], seedPlan, 'edited'],
   ])('plan %j with seed plan %j is %s', (plan, seed, origin) => {
-    expect(planOrigin(plan, story, seed)).toBe(origin)
+    expect(planOrigin(plan, story, seed, null)).toBe(origin)
   })
 
   test('a story plan the seed also generates counts as the story', () => {
-    expect(planOrigin([duplicate], story, [duplicate])).toBe('story')
+    expect(planOrigin([duplicate], story, [duplicate], null)).toBe('story')
+  })
+
+  test("a share link's plan says so, until it's edited", () => {
+    expect(planOrigin([crash], story, null, [crash])).toBe('link')
+    expect(planOrigin([], story, null, [crash])).toBe('edited')
   })
 })

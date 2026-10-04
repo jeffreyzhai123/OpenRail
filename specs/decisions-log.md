@@ -50,6 +50,7 @@ Engine 7 and Fault 1 were the two outstanding approvals; both are now approved, 
 | K — keep a machine warm | No: idle machines stop, with a ~1–2 s cold start | `deploy-plan.md` |
 | Frontend dev mode | No fixtures mode: the app always talks HTTP, to a local sim-api through the Vite dev proxy in development; fixtures are test data only | `v1-frontend-tasks.md` |
 | Editing a seed's plan | Editable only once a run has shown it (`seedPlan`, from the response's effective `fault_plan`). The frontend never generates plans itself, and guessing an empty plan would silently drop the seed's faults | `v1-frontend-tasks.md` step 4 |
+| Opening a share link | Its inputs replace the current ones, so the controls show what was replayed and Run reproduces it. Starting a replay clears the shown run, and the URL is never rewritten | `v1-frontend-tasks.md` step 5 |
 
 ## Open decisions from `v1-mvp-plan.md`, now resolved (2026-10-03)
 
