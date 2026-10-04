@@ -5,12 +5,14 @@
 
 mod scenario1_retry;
 mod scenario2_refund_order;
+mod scenario3_late_return;
 
 use sim_core::event::{EventId, EventKind, SimEvent};
 use sim_core::fault::FaultPlan;
 
 const MS_PER_SECOND: u64 = 1_000;
 const MS_PER_HOUR: u64 = 60 * 60 * MS_PER_SECOND;
+const MS_PER_DAY: u64 = 24 * MS_PER_HOUR;
 
 // The accounts the handlers post to. Local rather than reaching into
 // sim-core's handlers; a test proves they match what the handlers post to.
@@ -37,6 +39,7 @@ pub fn scenarios() -> Vec<Scenario> {
     vec![
         scenario1_retry::scenario(),
         scenario2_refund_order::scenario(),
+        scenario3_late_return::scenario(),
     ]
 }
 
@@ -65,18 +68,22 @@ fn event(id: u64, time: u64, kind: EventKind) -> SimEvent {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use sim_core::fault::apply_fault_plan;
     use sim_core::handlers::HandlerKind;
     use sim_core::ledger::Ledger;
+    use sim_core::rails::ach::{AchEvent, AchState};
 
     use super::*;
 
     #[test]
     fn ids_are_frozen_and_listed_in_order() {
         let ids: Vec<&str> = scenarios().iter().map(|scenario| scenario.id).collect();
-        assert_eq!(ids, ["charge-retry", "refund-before-capture"]);
+        assert_eq!(
+            ids,
+            ["charge-retry", "refund-before-capture", "late-ach-return"]
+        );
     }
 
     #[test]
@@ -137,6 +144,44 @@ mod tests {
                         );
                     }
                 }
+            }
+        }
+    }
+    #[test]
+    fn ach_events_follow_the_legal_lifecycle() {
+        for scenario in scenarios() {
+            let mut events: Vec<&SimEvent> = scenario.workload.iter().collect();
+            // Stable: same-time events keep workload order, as the queue does.
+            events.sort_by_key(|event| event.time);
+
+            let mut states: BTreeMap<u64, AchState> = BTreeMap::new();
+            for event in events {
+                let EventKind::Ach(ach) = &event.kind else {
+                    continue;
+                };
+                let (entry_id, to) = match ach {
+                    AchEvent::Initiated { entry_id, .. } => {
+                        let earlier = states.insert(entry_id.0, AchState::Initiated);
+                        assert_eq!(
+                            earlier, None,
+                            "{}: entry {} initiated twice",
+                            scenario.id, entry_id.0
+                        );
+                        continue;
+                    }
+                    AchEvent::Batched { entry_id } => (entry_id, AchState::Batched),
+                    AchEvent::Settled { entry_id } => (entry_id, AchState::Settled),
+                    AchEvent::Returned { entry_id, .. } => (entry_id, AchState::Returned),
+                };
+                let Some(from) = states.get(&entry_id.0).copied() else {
+                    panic!(
+                        "{}: entry {} has events before Initiated",
+                        scenario.id, entry_id.0
+                    );
+                };
+                let next = from.transition(to);
+                assert!(next.is_ok(), "{}: {next:?}", scenario.id);
+                states.insert(entry_id.0, to);
             }
         }
     }
