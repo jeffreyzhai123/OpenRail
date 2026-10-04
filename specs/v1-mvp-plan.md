@@ -8,7 +8,7 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 ## Feature status (README §3 V1)
 | # | V1 feature | Status | Spec |
 |---|---|---|---|
-| 1 | Virtual clock, seeded RNG, event queue, trace hashing | 🟡 RNG, clock and `hash_run` done (PR #2). Queue, handler trait and `run()` open (E3, E5, E6) | ✅ `deterministic-engine-plan.md` |
+| 1 | Virtual clock, seeded RNG, event queue, trace hashing | ✅ Done (E1–E6) | ✅ `deterministic-engine-plan.md` |
 | 2 | `Money(i64)` ledger + balance invariants | ✅ Done (#1–#4 run; #5/#6 named, V4) | ✅ `ledger-plan.md` |
 | 3 | ACH state machine | 🟡 State machine done (`rails/ach.rs`); D2 resolved to pull it into V1, so it still needs `Batched`/`Settled` `AchEvent`s and scenario 3 | ✅ |
 | 4 | Naive vs hardened handler pair | ✅ Done (E5, S1b) | ✅ (S1b) |

@@ -99,10 +99,10 @@ TODO.md hashes only the popped events.
 | E0 | Format the empty stubs | — | ✅ PR #2 |
 | E1 | Seeded RNG (`rng.rs`) | E0 | ✅ PR #2 |
 | E2 | Virtual clock (`clock.rs`) | E0 | ✅ PR #2 |
-| E3 | Event queue (`event.rs`) | E0 | Open |
+| E3 | Event queue (`event.rs`) | E0 | ✅ Done |
 | E4 | Trace hash (`trace.rs`) | E0 | ✅ PR #2 |
 | E5 | `EventHandler` trait and `HandlerKind` names (`handlers/mod.rs`) | E0 | ✅ Done |
-| E6 | `run()` and the determinism tests (`simulator.rs`) | E2, E3, E4, E5, F1 | Open |
+| E6 | `run()` and the determinism tests (`simulator.rs`) | E2, E3, E4, E5, F1 | ✅ Done |
 | E7 | Docs sync (what the early sync left) | E6 | Open |
 
 E3 and E5 don't depend on each other. **Land E5 early:** it's tiny, and it unblocks the handlers track (`v1-mvp-plan.md` S1b) and lets sim-api name handlers. E1 isn't on `run()`'s path yet (deviation 5). Its first consumer is fault generation (S2).
