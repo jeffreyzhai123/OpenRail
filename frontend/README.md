@@ -1,6 +1,6 @@
 # Rails Sim Playground: frontend
 
-React + TypeScript UI for the simulator. It talks to the stateless `sim-api` over HTTP. The design and the API contract are in [`specs/frontend-plan.md`](../specs/frontend-plan.md), and the overall design is in the [root README](../README.md).
+React + TypeScript UI for the simulator. It talks to the stateless `sim-api` over HTTP. The design and the API contract are in [`specs/v1-frontend-tasks.md`](../specs/v1-frontend-tasks.md), and the overall design is in the [root README](../README.md).
 
 ```
 npm install

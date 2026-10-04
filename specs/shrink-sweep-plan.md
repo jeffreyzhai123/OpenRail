@@ -8,7 +8,7 @@ Everything both of them need now exists:
 - `HandlerKind::build`;
 - the three scenarios, each with a story plan.
 
-The frontend contract (`frontend-plan.md`) fixes what sim-api will expose:
+The frontend contract (`v1-frontend-tasks.md`) fixes what sim-api will expose:
 - **Sweep:** `POST /sweep { scenario_id, seed_start, count }` → `{ count, naive: { failed }, hardened: { failed } }`.
 - **Shrink:** `POST /shrink { scenario_id, seed, handler, fault_plan, invariant }` → `{ original, shrunk, invariant, candidates_tried, run }`.
 
@@ -153,7 +153,7 @@ Flow:
 ## SD: docs sync
 - **README §6.5:** `sweep.rs  sweep(), count_failing_runs()`, and `shrink.rs  shrink_plan(), shrink_run() (V1: single-pass greedy, see §6.3)`. `simulator.rs` becomes just `run()`.
 - **`v1-mvp-plan.md`:** features 7 and 8 and S3 are done, with the recorded sweep rates.
-- **`frontend-plan.md`:** no contract change. `SweepResult` and `ShrinkResult` map one-to-one onto the existing DTOs.
+- **`v1-frontend-tasks.md`:** no contract change. `SweepResult` and `ShrinkResult` map one-to-one onto the existing DTOs.
 - **This spec:** the status line.
 
 ## Files

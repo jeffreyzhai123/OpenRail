@@ -129,7 +129,7 @@ Runs on every pull request and on pushes to `develop` and `main`.
   - `[build.args] VITE_API_BASE_URL = "https://openrail-api.fly.dev"`;
   - port 80, `force_https`, auto-stop;
   - a health check on `GET /`.
-- No rewrites are needed: replay links live in the URL fragment (`frontend-plan.md`), so every path is `/`.
+- No rewrites are needed: replay links live in the URL fragment (`v1-frontend-tasks.md`), so every path is `/`.
 
 | Decision | Why |
 |---|---|
@@ -180,7 +180,7 @@ Then I run `scripts/smoke.sh https://openrail-api.fly.dev https://openrail-web.f
   - S5 done;
   - "no CI" and "`main` behind `develop`" removed from housekeeping;
   - V1 acceptance points at the deployed URL.
-- **`frontend-plan.md`:** step 8's "deploy as a static site" points at `fly.web.toml` and `scripts/smoke.sh`.
+- **`v1-frontend-tasks.md`:** step 8's "deploy as a static site" points at `fly.web.toml` and `scripts/smoke.sh`.
 - **CLAUDE.md:** `scripts/smoke.sh` in Commands (deviation 3).
 
 ## What stays after this plan
@@ -188,7 +188,7 @@ V1's acceptance (`v1-mvp-plan.md`, "Verification") is a walkthrough of the **fin
 
 ## Files
 - New: `.github/workflows/ci.yml`, `rust-toolchain.toml`, `Dockerfile.api`, `Dockerfile.web`, `.dockerignore`, `fly.api.toml`, `fly.web.toml` and `scripts/smoke.sh`.
-- Modify (DP7): `README.md`, `CLAUDE.md`, `specs/v1-mvp-plan.md`, `specs/frontend-plan.md`.
+- Modify (DP7): `README.md`, `CLAUDE.md`, `specs/v1-mvp-plan.md`, `specs/v1-frontend-tasks.md`.
 - No Rust or frontend source changes.
 
 ## Verification

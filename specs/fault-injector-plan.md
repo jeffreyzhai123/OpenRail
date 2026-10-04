@@ -63,7 +63,7 @@ Engine deviation 1 left this to S2: a borrowed `&mut dyn EventHandler` can't be 
 **Chosen: A.**
 
 ## Other deviations from README / TODO.md (CLAUDE.md requires flagging these)
-1. **`RunResult` gains `fault_plan`, the effective plan.** README §6.1 doesn't list it. When the caller passes `None`, the generated plan has to come back, so the UI can show, edit, share and shrink it (`frontend-plan.md` ask #3). **Approved by the user, 2026-10-03**, alongside engine deviation 7.
+1. **`RunResult` gains `fault_plan`, the effective plan.** README §6.1 doesn't list it. When the caller passes `None`, the generated plan has to come back, so the UI can show, edit, share and shrink it (`v1-frontend-tasks.md` ask #3). **Approved by the user, 2026-10-03**, alongside engine deviation 7.
 2. **`SimError` gets `InvalidFaultPlan(FaultError)`.** E6 adds it directly, because it applies explicit plans through F1 (engine deviation 4). No `FaultsNotSupported` error is ever added.
 3. **`seed` is used.** This resolves engine deviation 5.
 4. **`Rng::below(NonZeroU32)` becomes public.** Generation draws from ranges that are non-empty by construction, so the `Option` from `next_range` would only add an `unwrap`.
@@ -192,7 +192,7 @@ Done on 2026-10-03. README §6.1 (`Reorder { event_id, window }`, the factory in
 - **A `Drop` is only visible in V1 through #4**, when a refund's capture was dropped. A dropped refund breaks nothing V1 checks. Lost webhooks in general are what #5 and #6 cover in V4.
 
 ## Files
-- Modify: `crates/sim-core/src/fault.rs` (F1, F2), `event.rs` (`EventId` derives `Ord`, F1), `rng.rs` (`below` becomes public, F2), `simulator.rs` (F3). F4: `README.md`, `specs/frontend-plan.md`, `specs/v1-mvp-plan.md`.
+- Modify: `crates/sim-core/src/fault.rs` (F1, F2), `event.rs` (`EventId` derives `Ord`, F1), `rng.rs` (`below` becomes public, F2), `simulator.rs` (F3). F4: `README.md`, `specs/v1-frontend-tasks.md`, `specs/v1-mvp-plan.md`.
 - No new dependencies.
 
 ## Verification

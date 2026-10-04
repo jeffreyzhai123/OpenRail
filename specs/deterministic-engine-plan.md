@@ -17,13 +17,13 @@ The work is split into pieces E0–E7 below. Each piece is one commit on a featu
 **Every ordering is explicit, and nothing reads ambient state.** The queue orders by `(time, seq)`, ties fall back to workload slice order, JSON uses field declaration order, and the ledger uses `BTreeMap`. Nothing reads a wall clock, a randomized hasher or the environment. Second rule: **low-level code reports, `run()` decides.** The clock, queue, trace and ledger return errors, and `run()` is the one boundary that turns them into a `SimError`.
 
 ## Deviations from TODO.md / README (CLAUDE.md requires flagging these)
-1. **`run()` takes a handler factory, `new_handler: &dyn Fn() -> Box<dyn EventHandler>`.** README §6.1 has no handler parameter. Approved by the user. "Posts to the ledger" needs something that maps events to entries, and naive vs hardened is V1's whole demo. It also matches `frontend-plan.md` ask #1. It's a factory rather than a borrowed handler so that a crash-restart can build a fresh one (`fault-injector-plan.md` decision C, approved).
+1. **`run()` takes a handler factory, `new_handler: &dyn Fn() -> Box<dyn EventHandler>`.** README §6.1 has no handler parameter. Approved by the user. "Posts to the ledger" needs something that maps events to entries, and naive vs hardened is V1's whole demo. It also matches `v1-frontend-tasks.md` ask #1. It's a factory rather than a borrowed handler so that a crash-restart can build a fresh one (`fault-injector-plan.md` decision C, approved).
 2. **`run()` returns `Result<RunResult, SimError>`.** README §6.1 returns a bare `RunResult`. An unbalanced opening or a structurally invalid handler entry has to surface as an error at the boundary (sim-api maps it to 4xx/5xx), not as a panic.
 3. **`hash_run(trace, journal) -> Result<String, serde_json::Error>` replaces `hash_trace(&[SimEvent]) -> String`.** Approved by the user (decision H). It hashes the journal as well as the events. It returns a `Result` because serde_json's API is fallible. It can't fail for today's types, but returning the error keeps the no-`unwrap` rule without a "provably impossible" argument that a future `EventKind` could quietly break.
 4. **E6 applies explicit fault plans through `apply_fault_plan` (`fault-injector-plan.md` F1), crash-restarts included. `None` means no faults until F3 adds generation.** README §6.1 doesn't say how faults run. F1 already exists, so this avoids adding a `FaultsNotSupported` error that F3 would only delete.
 5. **`seed` is accepted but not used yet.** Until faults exist, nothing random happens in a run. The determinism test still proves the pipeline has no hidden nondeterminism, such as hasher order or ambient state. It doesn't prove that seeded faults replay; it covers that once faults land.
 6. **The `seq` in workload events is ignored.** The queue assigns `seq` at push, so a scenario's slice order is its tie-break. `Scenario.workload` stays `Vec<SimEvent>` for now.
-7. **`RunResult` gains `opening` and `journal`.** **Approved by the user, 2026-10-03.** README §6.1 lists only `trace`, `ledger`, `invariants` and `trace_hash`. `run()` consumes the `Ledger`, so nothing after it can recover them, and the timeline scrubber needs both (`frontend-plan.md` ask #4, `v1-mvp-plan.md` gap 1).
+7. **`RunResult` gains `opening` and `journal`.** **Approved by the user, 2026-10-03.** README §6.1 lists only `trace`, `ledger`, `invariants` and `trace_hash`. `run()` consumes the `Ledger`, so nothing after it can recover them, and the timeline scrubber needs both (`v1-frontend-tasks.md` ask #4, `v1-mvp-plan.md` gap 1).
 8. **The seed is a `u32`.** Approved by the user (decision W). README §6.1 has `seed: u64`. mulberry32 has a 32-bit state, so a wider seed only adds a fold and collisions, and a `u32` fits in a JS number.
 
 ## Decisions (settled with the user, 2026-10-03)
@@ -33,7 +33,7 @@ Each decision below keeps the options that were weighed. The seed and the times 
 mulberry32 has a 32-bit state, so there are only 2^32 distinct streams, whatever the seed's type.
 
 **A. `u64` seed, folded into the state (as written, README §6.1)**
-- ✅ Matches README §6.1, `frontend-plan.md` and `v1-mvp-plan.md` S4 as written. No other doc changes.
+- ✅ Matches README §6.1, `v1-frontend-tasks.md` and `v1-mvp-plan.md` S4 as written. No other doc changes.
 - ✅ If a later generator has a 64-bit state, the seed type and existing links stay the same.
 - ❌ Distinct seeds can give identical runs: each stream is shared by 2^32 seeds. Only seeds ≥ 2^32 collide with another seed, so in practice this is a caveat to document rather than a bug users hit.
 - ❌ A `u64` doesn't fit in a JS number, so the seed travels as a decimal string (frontend ask #5). That needs a string validator on both sides, and a random seed has to be built from two 32-bit halves.
@@ -43,7 +43,7 @@ mulberry32 has a 32-bit state, so there are only 2^32 distinct streams, whatever
 - ✅ One seed, one stream. No fold, no collisions, no caveat.
 - ✅ Fits in a JS number (`u32::MAX` < 2^53), so the seed is a plain JSON number and frontend ask #5 goes away. Validation becomes a range check on an integer.
 - ✅ 4 billion seeds is far more than a sweep will use.
-- ❌ Deviates from README §6.1 (`seed: u64`). It needs approval, plus edits to README §6.1, to `frontend-plan.md` (ask #5, the DTOs, `seed.ts` and its tests) and to `v1-mvp-plan.md` S4.
+- ❌ Deviates from README §6.1 (`seed: u64`). It needs approval, plus edits to README §6.1, to `v1-frontend-tasks.md` (ask #5, the DTOs, `seed.ts` and its tests) and to `v1-mvp-plan.md` S4.
 - ❌ A future 64-bit generator would change the seed type again, with another link version bump.
 
 **Chosen: B** (deviation 8), while no code read the seed. The fold and the string seed both existed only to carry 32 bits of entropy in a 64-bit type.

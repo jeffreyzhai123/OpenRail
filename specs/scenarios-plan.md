@@ -111,7 +111,7 @@ Hardened under *generated* plans is left to the sweep (S3). One gap this surface
 
 ## C5: docs sync
 - **README §6.1:** `Scenario.story_plan`, once decision P is approved. §6.5's file names already match.
-- **`frontend-plan.md`:**
+- **`v1-frontend-tasks.md`:**
   - ask #2: `GET /scenarios` also returns `story_plan`;
   - the UI loads the story plan when a scenario is picked, with "reset to story plan" next to "reset to seed plan";
   - the fixtures cover 3 scenarios.
@@ -120,7 +120,7 @@ Hardened under *generated* plans is left to the sweep (S3). One gap this surface
 ## Files
 - Modify: `crates/sim-scenarios/Cargo.toml` and `src/lib.rs`.
 - New: `src/scenario1_retry.rs`, `src/scenario2_refund_order.rs` and `src/scenario3_late_return.rs`.
-- C5: `README.md`, `specs/frontend-plan.md` and `specs/v1-mvp-plan.md`.
+- C5: `README.md`, `specs/v1-frontend-tasks.md` and `specs/v1-mvp-plan.md`.
 - No changes to `sim-core`.
 
 ## Verification

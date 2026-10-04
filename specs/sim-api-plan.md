@@ -7,7 +7,7 @@ README §3 V1 needs the core loop reachable from a browser: run a scenario, shar
 - `sweep()` and `shrink_run()`;
 - the three scenarios.
 
-This is S4 in `v1-mvp-plan.md`, and Person A's track in `v1-backend-task-split.md`. The HTTP contract is already written down in `frontend-plan.md` ("API contract v1"), and the frontend is being built against it.
+This is S4 in `v1-mvp-plan.md`, and Person A's track in `v1-backend-task-split.md`. The HTTP contract is already written down in `v1-frontend-tasks.md` ("API contract v1"), and the frontend is being built against it.
 
 **Status (2026-10-03):** decisions V, B and G are approved, and all pieces (API1–API7) are done on branch `sim-api`. The golden fixtures are generated into `frontend/src/api/fixtures/`.
 
@@ -52,12 +52,12 @@ README §6.2 says to version the encoding, and V2 adds compression.
 
 **Chosen: A.**
 
-## Deviations from README / TODO.md / frontend-plan (CLAUDE.md requires flagging these)
+## Deviations from README / TODO.md / v1-frontend-tasks.md (CLAUDE.md requires flagging these)
 1. **More files than README §6.5 lists:** `lib.rs` (so integration tests can drive the router), `app.rs`, `error.rs` and `dto.rs`, next to `main.rs`, `encode.rs` and `routes/*`. `main.rs` stays a few lines.
 2. **`GET /health`**, an addition to the contract, for Fly.io's health check (D1, S5).
-3. **The error codes become part of the contract** (table below). `frontend-plan.md` only fixes the envelope shape.
+3. **The error codes become part of the contract** (table below). `v1-frontend-tasks.md` only fixes the envelope shape.
 4. **A per-request plan cap, `MAX_PLAN_FAULTS = 100`,** stricter than the shrinker's 500. It applies to every request that carries a plan, so a replay link's path stays under about 6 KB. That's §6.2's "short-plan cap".
-5. **Contract drift fix:** `frontend-plan.md`'s `AchEvent` type gains `Initiated`, `Batched` and `Settled`, which scenario 3 sends. Not an approval item, just a correction.
+5. **Contract drift fix:** `v1-frontend-tasks.md`'s `AchEvent` type gains `Initiated`, `Batched` and `Settled`, which scenario 3 sends. Not an approval item, just a correction.
 
 ## Errors (the envelope: `{ "error": { "code", "message" } }`)
 | Code | Status | When |
@@ -190,7 +190,7 @@ A test builds each canonical response through `app()` and compares it, as pretty
 With `UPDATE_FIXTURES=1`, the test rewrites the files instead. Without it, a missing or different file fails the test, with a message saying to run it with `UPDATE_FIXTURES=1` and review the diff. The responses are deterministic, so the fixtures are stable byte for byte.
 
 ## API7: docs and contract sync
-- **`frontend-plan.md`:**
+- **`v1-frontend-tasks.md`:**
   - `AchEvent` gains `Initiated`, `Batched` and `Settled`;
   - the error-code table and `GET /health` are added;
   - step 1 uses the generated fixtures (decision G);
@@ -206,7 +206,7 @@ With `UPDATE_FIXTURES=1`, the test rewrites the files instead. Without it, a mis
   - `crates/sim-api/src/routes/{mod.rs, scenarios.rs, run.rs, replay.rs, shrink.rs, sweep.rs}`;
   - `crates/sim-api/tests/*`;
   - `frontend/src/api/fixtures/*.json` (API6).
-- Modify: `crates/sim-api/Cargo.toml`, `src/main.rs`. API7: `README.md`, `specs/frontend-plan.md`, `specs/v1-mvp-plan.md`.
+- Modify: `crates/sim-api/Cargo.toml`, `src/main.rs`. API7: `README.md`, `specs/v1-frontend-tasks.md`, `specs/v1-mvp-plan.md`.
 - No changes to `sim-core` or `sim-scenarios`.
 
 ## Verification
@@ -215,4 +215,4 @@ With `UPDATE_FIXTURES=1`, the test rewrites the files instead. Without it, a mis
   1. `cargo run -p sim-api`.
   2. `curl` `GET /scenarios`, then `POST /run` on `charge-retry` with its story plan under naive: `single_capture_per_intent` should be red.
   3. Paste the returned `replay` into `GET /replay/…`: it should give the same `trace_hash`.
-- After frontend step 8: the walkthrough in `frontend-plan.md` with `VITE_SIM_CLIENT=http` against a local sim-api.
+- After frontend step 8: the walkthrough in `v1-frontend-tasks.md` with `VITE_SIM_CLIENT=http` against a local sim-api.

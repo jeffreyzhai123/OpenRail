@@ -314,8 +314,12 @@ sim-api/src/
   encode.rs           encode_run() / decode_run(), see §6.2
   tests/fixtures.rs   golden fixtures for frontend/src/api/fixtures/ (UPDATE_FIXTURES=1)
 
-frontend/               React/TS, calls sim-api over HTTP
-  Timeline, BalancePanel, InvariantPanel, Controls, ShrinkView, SweepChart, Gallery
+frontend/               React/TS, calls sim-api over HTTP (specs/v1-frontend-tasks.md)
+  src/api/              types, decode, SimClient/HttpClient/FixtureClient, fixtures/
+  src/lib/              money, seed, balances, faultPlan, replayLink — pure, unit-tested
+  src/state/            reducer
+  src/components/       Controls, FaultPlanEditor, Timeline, BalancePanel, InvariantPanel,
+                        ReplayBadge, ErrorBanner, ShrinkView, SweepChart
 ```
 
 ### 6.6 Concurrency design summary (see §5 for full rationale)

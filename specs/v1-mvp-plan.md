@@ -3,26 +3,26 @@
 ## Context
 README §3 defines V1 as "a working, deployed, deterministic simulator proving the core loop end to end: inject a fault, watch it break the naive handler, share the exact failure as a link." This compares each V1 feature against `develop` at `43082a7`, with row 1 rechecked at `3fc6ff3` (PR #2).
 
-**Bottom line:** about 2 of the 11 V1 features are done: the money ledger with invariants, and the ACH state machine. The engine is partly built: the RNG, clock and run hash are merged (PR #2), but the event queue, the handler trait and `run()` are still open. **Almost nothing that makes up the core loop exists yet**: handlers, scenarios, shrink, sweep, the API, the UI and the deploy. Fault injection has started (F1, not merged). Of those pieces, only faults and the UI have specs.
+**Bottom line (updated 2026-10-03):** 9 of the 11 V1 features are done, plus `sim-api`: engine, ledger/invariants, ACH, handlers, fault injection, replay links, shrink, sweep, and all 3 scenarios. **What's left is entirely the frontend (step 0 of 8) and deploy (not started)** — see `v1-frontend-tasks.md` and `deploy-plan.md`.
 
 ## Feature status (README §3 V1)
 | # | V1 feature | Status | Spec |
 |---|---|---|---|
 | 1 | Virtual clock, seeded RNG, event queue, trace hashing | ✅ Done (E1–E6) | ✅ `deterministic-engine-plan.md` |
 | 2 | `Money(i64)` ledger + balance invariants | ✅ Done (#1–#4 and #7 run; #5/#6 named, V4) | ✅ `ledger-plan.md` |
-| 3 | ACH state machine | 🟡 State machine done (`rails/ach.rs`); D2 resolved to pull it into V1, so it still needs `Batched`/`Settled` `AchEvent`s and scenario 3 | ✅ |
+| 3 | ACH state machine | ✅ Done: `Initiated`/`Batched`/`Settled`/`Returned` (`rails/ach.rs`), exercised end to end by scenario 3 (D2) | ✅ |
 | 4 | Naive vs hardened handler pair | ✅ Done (E5, S1b) | ✅ (S1b) |
 | 5 | Fault injector: duplicate, reorder, delay, drop, crash-restart | ✅ Done: applying a plan (F1, PR #3), seed → plan generation (F2, PR #4), and both wired into `run()` with the effective plan returned (F3, `3f423e5`) | ✅ `fault-injector-plan.md` |
 | 6 | Replay-by-seed links (basic URL encoding) | ✅ Done: `1.` + base64url(JSON), and `GET /replay` reproduces a run byte for byte | ✅ `sim-api-plan.md` |
 | 7 | Shrinker, single-pass greedy | ✅ Done: `shrink_plan()` and `shrink_run()` (SK1, SK2) | ✅ `shrink-sweep-plan.md` |
 | 8 | Sweep harness (naive vs hardened failure rate) | ✅ Done: `sweep()` (SW1). Over seeds 0..1,000, hardened fails 0 runs on every scenario, and naive 40–62% (SW2) | ✅ `shrink-sweep-plan.md` |
 | 9 | 2–3 playable scenarios | ✅ Done: `charge-retry`, `refund-before-capture`, `late-ach-return`, each with a story plan, tested end to end through `run()` | ✅ `scenarios-plan.md` |
-| 10 | Minimal UI: timeline, balances, invariants, Run/Shrink/Share | ❌ Step 0 scaffold only (a header in `App.tsx`) | ✅ `frontend-plan.md` (steps 1–8 open) |
+| 10 | Minimal UI: timeline, balances, invariants, Run/Shrink/Share | ❌ Step 0 scaffold only (a header in `App.tsx`) | ✅ `v1-frontend-tasks.md` (steps 1–8 open) |
 | 11 | Deployed + smoke-tested against the real backend | ❌ No host chosen, no Dockerfile or config | ❌ |
-| — | `sim-api` (Axum routes the UI calls) | ❌ `main.rs` is hello-world, and there are no deps (axum, tokio, serde) | ❌ (its contract lives in `frontend-plan.md`) |
+| — | `sim-api` (Axum routes the UI calls) | ✅ Done: all routes, the error envelope, replay encoding, and golden fixtures (API1–API7) | ✅ `sim-api-plan.md` |
 
 ## Gaps inside the existing specs
-1. **`RunResult` is missing `opening` and `journal`.** `frontend-plan.md` ask #4 needs both for the timeline scrubber. `run()` consumes the `Ledger`, so sim-api can't recover them afterwards. → Resolved: `RunResult` has `opening`, `journal` and the effective `fault_plan` (E6 and F3, `3f423e5`).
+1. **`RunResult` is missing `opening` and `journal`.** `v1-frontend-tasks.md` ask #4 needs both for the timeline scrubber. `run()` consumes the `Ledger`, so sim-api can't recover them afterwards. → Resolved: `RunResult` has `opening`, `journal` and the effective `fault_plan` (E6 and F3, `3f423e5`).
 2. **The shrinker and sweep need a fresh handler for every run.** → Solved by `run()` taking a handler factory (`fault-injector-plan.md` decision C). `HandlerKind { Naive, Hardened }`, serialized as `"naive"`/`"hardened"`, lands with the trait in engine E5, so sim-api, the replay encoding and the sweep can name handlers early. `build() -> Box<dyn EventHandler>` lands with the handlers (S1b), and callers pass `&|| kind.build()`. The names match the frontend's `Handler` type and are what `encode_run` stores.
 3. **Seeds do nothing until fault generation exists** (A-spec deviation 5). Until then, every seed gives the same run, so **the sweep is meaningless** and replay-by-seed is trivial. Seed → plan generation is on the critical path, not a polish item. → Resolved: `run()` generates a plan from the seed when none is given (F3).
 
@@ -47,13 +47,13 @@ README §3 defines V1 as "a working, deployed, deterministic simulator proving t
 - Sweep: for seeds `start..start+count` × {naive, hardened}, count the runs with any failed invariant. Cap `count` with a named constant.
 
 **S4: sim-api + replay encoding** (`sim-api`) → done, see `sim-api-plan.md`.
-- Routes: `POST /run`, `GET /replay/:encoded`, `POST /shrink`, `POST /sweep`, plus `GET /scenarios`. Use the error envelope and the DTOs from `frontend-plan.md`, with the seed as a `u32` JSON number (engine decision W).
+- Routes: `POST /run`, `GET /replay/:encoded`, `POST /shrink`, `POST /sweep`, plus `GET /scenarios`. Use the error envelope and the DTOs from `v1-frontend-tasks.md`, with the seed as a `u32` JSON number (engine decision W).
 - `encode_run` in V1 is "basic URL encoding" (README §3): versioned JSON → base64url, **without compression** (compression is the §6.2 / V2 target). That keeps the deps to axum, tokio, serde, tower-http (CORS) and a base64 implementation.
 - CLAUDE.md's network-failure rule applies only here: body size limit, request timeout, sweep and shrink caps, and turning `SimError` into a 4xx/5xx response.
 - The golden-fixture test (frontend ask #7).
 
 **S5: deploy** (README: "pick one API host early")
-- Fly.io or Railway for the API, plus static hosting for `frontend/`. Then the smoke test from `frontend-plan.md` (walkthrough with `VITE_SIM_CLIENT=http`).
+- Fly.io or Railway for the API, plus static hosting for `frontend/`. Then the smoke test from `v1-frontend-tasks.md` (walkthrough with `VITE_SIM_CLIENT=http`).
 
 ## Critical path and parallel tracks
 **Critical path:** ~~E3 + E5 → E6 (also needs F1) → F3 (also needs F2) → S3 → S4~~ → frontend step 8 → S5. Everything struck through is done.

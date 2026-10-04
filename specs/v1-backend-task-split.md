@@ -12,7 +12,7 @@ ledger (already done), ACH brought into V1 (D2), naive/hardened handlers, three
 scenarios, the greedy shrinker, the sweep harness, `sim-api`, and deploy.
 
 **Not covered here: the frontend.** It proceeds on its own track per
-`frontend-plan.md`, independently of this split. `frontend-plan.md` already
+`v1-frontend-tasks.md`, independently of this split. `v1-frontend-tasks.md` already
 describes a mock-client mode that lets frontend work start without waiting on
 `sim-api`, so the two tracks don't block each other.
 

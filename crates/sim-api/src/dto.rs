@@ -1,4 +1,4 @@
-//! The wire types. They serialize in the order `frontend-plan.md`'s "API
+//! The wire types. They serialize in the order `v1-frontend-tasks.md`'s "API
 //! contract v1" lists their fields.
 
 use std::collections::BTreeMap;
