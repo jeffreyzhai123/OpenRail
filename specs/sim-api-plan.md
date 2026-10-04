@@ -9,12 +9,12 @@ README §3 V1 needs the core loop reachable from a browser: run a scenario, shar
 
 This is S4 in `v1-mvp-plan.md`, and Person A's track in `v1-backend-task-split.md`. The HTTP contract is already written down in `frontend-plan.md` ("API contract v1"), and the frontend is being built against it.
 
-**Status (2026-10-03):** not started. Decisions V, B and G await approval.
+**Status (2026-10-03):** decisions V, B and G are approved. API1 is in progress on branch `sim-api`.
 
 ## The principle behind most decisions below
 **sim-api is a thin, stateless, deterministic shell.** Every endpoint is a pure function of its request: it looks up the scenario, calls sim-core, and maps the result or error to the contract. Nothing is stored. So the same request always gets the same response bytes, which makes every endpoint safe to retry, POSTs included. The only async code in the workspace lives here (CLAUDE.md), and the simulation itself still runs synchronously.
 
-## Decisions (each needs approval)
+## Decisions (approved by the user, 2026-10-03)
 ### V: how the replay encoding is versioned
 README §6.2 says to version the encoding, and V2 adds compression.
 
@@ -27,7 +27,7 @@ README §6.2 says to version the encoding, and V2 adds compression.
 - ✅ One opaque blob.
 - ❌ Breaks as soon as V2 compresses: the version would be inside the bytes you need the version to decode.
 
-**Recommended: A.**
+**Chosen: A.**
 
 ### B: base64url
 **A. The `base64` crate**
@@ -38,7 +38,7 @@ README §6.2 says to version the encoding, and V2 adds compression.
 - ✅ No dependency, like the RNG.
 - ❌ About 40 lines of decoding of *untrusted* URL input, which is where hand-rolled code goes wrong. Unlike the RNG, determinism gains nothing from owning it.
 
-**Recommended: A.**
+**Chosen: A.**
 
 ### G: where the frontend's fixtures come from (frontend ask #7)
 **A. sim-api generates them, and frontend step 1 adopts them instead of hand-writing**
@@ -50,7 +50,7 @@ README §6.2 says to version the encoding, and V2 adds compression.
 - ✅ No cross-tree writes.
 - ❌ Drift isn't caught until go-live.
 
-**Recommended: A.**
+**Chosen: A.**
 
 ## Deviations from README / TODO.md / frontend-plan (CLAUDE.md requires flagging these)
 1. **More files than README §6.5 lists:** `lib.rs` (so integration tests can drive the router), `app.rs`, `error.rs` and `dto.rs`, next to `main.rs`, `encode.rs` and `routes/*`. `main.rs` stays a few lines.
