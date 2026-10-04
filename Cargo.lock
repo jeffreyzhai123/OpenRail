@@ -368,6 +368,9 @@ dependencies = [
 [[package]]
 name = "sim-scenarios"
 version = "0.1.0"
+dependencies = [
+ "sim-core",
+]
 
 [[package]]
 name = "syn"
