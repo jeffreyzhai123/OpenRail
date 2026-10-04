@@ -61,7 +61,7 @@ A working, deployed, deterministic simulator proving the core loop end to end: i
 - Replay-by-seed links (basic URL encoding)
 - Shrinker: **single-pass greedy** version only (try removing each fault once, keep if failure persists) — not full ddmin yet
 - Sweep harness (naive vs. hardened failure-rate chart)
-- 2–3 playable scenarios, minimal UI (timeline, balances, invariant panel, Run/Shrink/Share)
+- 3 playable scenarios — 2 card, 1 ACH (late return after settlement, `decisions-log.md` D2) — minimal UI (timeline, balances, invariant panel, Run/Shrink/Share)
 - Deployed and smoke-tested against the real backend
 
 ### V2 — Complete (Tier 0–2 hardened)
@@ -69,10 +69,10 @@ A working, deployed, deterministic simulator proving the core loop end to end: i
 Everything V1 rushed, done properly — no new architecture, just correctness and polish.
 
 **Features:**
-- Full property-based test coverage across all 6 invariants (§6.4)
+- Full property-based test coverage across all invariants (§6.4)
 - **10,000-seed determinism check in CI** — same seed must always produce an identical trace hash
 - Full recursive **ddmin shrinker** (§6.3), replacing the greedy V1 version, with honest real-number reporting (no placeholder ratios)
-- Third scenario, ACH details re-verified against Nacha documentation
+- ACH details re-verified against Nacha documentation (scenario 3 itself ships in V1, `decisions-log.md` D2)
 - Scenario gallery as real linkable pages; self-explaining failure pages (what broke, why, in 1–2 lines, no narration required)
 - CLI wrapper for running sweeps outside the browser
 - CI: lint, test, determinism check, deploy on merge
@@ -172,7 +172,14 @@ enum CardEvent {
 // sim-core/src/rails/ach.rs
 struct AchEntryId(u64);
 enum AchReturnCode { R01, R02, R03, R04, Other(String) } // revisit against NACHA docs in V2
-enum AchEvent { Returned { entry_id: AchEntryId, code: AchReturnCode, amount: Money } }
+// Batched/Settled move no money and aren't separately invariant-checked (see
+// the doc comment on AchState): any illegitimate Returned they could lead to
+// is already caught by refund_within_capture and single_entry_per_source_event.
+enum AchEvent {
+    Batched { entry_id: AchEntryId },
+    Settled { entry_id: AchEntryId },
+    Returned { entry_id: AchEntryId, code: AchReturnCode, amount: Money },
+}
 
 // sim-core/src/money.rs
 struct Money(i64); // cents. Checked add/sub. No From<f64>, ever.
@@ -191,8 +198,26 @@ type FaultPlan = Vec<FaultOp>; // must survive being encoded into a replay URL a
 // sim-scenarios/src/lib.rs
 struct Scenario { id: &'static str, name: &'static str, description: &'static str, initial_ledger: Vec<(String, i64)>, workload: Vec<SimEvent> }
 
+// sim-core/src/handlers/mod.rs
+trait EventHandler {
+    // Journal entries this event produces; run() is the only caller of post().
+    fn handle(&mut self, event: &SimEvent, ledger: &Ledger) -> Vec<JournalEntry>;
+}
+// Which handler a run uses, as sim-api and replay links name it.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum HandlerKind { Naive, Hardened } // build() -> Box<dyn EventHandler> lands with the handlers
+
 // sim-core/src/simulator.rs — the main entrypoint everything else calls
-struct RunResult { trace: Vec<SimEvent>, ledger: LedgerSnapshot, invariants: Vec<InvariantResult>, trace_hash: String }
+struct RunResult {
+    trace: Vec<SimEvent>,
+    opening: BTreeMap<String, Money>, // run() consumes the Ledger, so nothing after it can recover these otherwise
+    journal: Vec<JournalEntry>,
+    fault_plan: FaultPlan,             // the effective plan: the input if explicit, or generated from the seed if None
+    ledger: LedgerSnapshot,
+    invariants: Vec<InvariantResult>,
+    trace_hash: String,
+}
 // Takes initial_ledger/workload directly rather than &Scenario: Scenario is
 // defined in sim-scenarios, which depends on sim-core (§2) — not the other
 // way around, so sim-core can't name sim-scenarios's types. Callers in
@@ -200,6 +225,7 @@ struct RunResult { trace: Vec<SimEvent>, ledger: LedgerSnapshot, invariants: Vec
 // The seed is a u32: mulberry32's whole state, and safe as a JS number.
 // `new_handler` is a factory so a CrashRestart fault can rebuild the handler
 // mid-run. Invalid input (an unbalanced opening, a bad fault plan) is an Err.
+// fault_plan: None means generate one from the seed; Some(plan) replays it exactly.
 fn run(initial_ledger: &[(String, i64)], workload: &[SimEvent], seed: u32, fault_plan: Option<&FaultPlan>,
        new_handler: &dyn Fn() -> Box<dyn EventHandler>) -> Result<RunResult, SimError>;
 ```
@@ -256,18 +282,22 @@ sim-core/src/
   handlers/naive.rs, handlers/hardened.rs
   fault.rs        FaultOp, FaultPlan, apply_fault_plan() (pure), generate_fault_plan(seed)
   trace.rs        hash_run() — canonical JSON of (trace, journal), then blake3
-  simulator.rs    run(), sweep()
+  simulator.rs    run()
   shrink.rs       shrink() — ddmin, see §6.3
+  sweep.rs        sweep() — naive vs. hardened failure rate over a seed range.
+                  Its own file, not simulator.rs: keeps run()'s file solely
+                  owned by the engine track (specs/v1-backend-task-split.md).
 
 sim-scenarios/src/
   lib.rs                      Scenario struct
   scenario1_retry.rs           charge retried after timeout
   scenario2_refund_order.rs    refund event arrives before capture
-  scenario3_late_return.rs     ACH return arrives after settlement (V2+)
+  scenario3_late_return.rs     ACH return arrives after settlement (pulled into V1, decisions-log.md D2)
 
 sim-api/src/
   main.rs            Axum app — the ONLY crate with Tokio
   routes/run.rs       POST /run
+  routes/scenarios.rs GET /scenarios
   routes/replay.rs    GET /replay/:encoded
   routes/shrink.rs    POST /shrink
   routes/sweep.rs     POST /sweep
