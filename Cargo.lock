@@ -73,6 +73,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "base64"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
+
+[[package]]
 name = "bit-set"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -622,9 +628,11 @@ name = "sim-api"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64",
  "http-body-util",
  "serde",
  "serde_json",
+ "sim-core",
  "tokio",
  "tower",
  "tower-http",

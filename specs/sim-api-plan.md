@@ -67,7 +67,7 @@ README §6.2 says to version the encoding, and V2 adds compression.
 | `unsupported_encoding_version` | 400 | A well-formed prefix naming a version this server doesn't read |
 | `unknown_scenario` | 404 | No scenario with that id |
 | `not_found` / `method_not_allowed` | 404 / 405 | Unknown route or method |
-| `payload_too_large` | 413 | A body over `MAX_BODY_BYTES` (64 KiB) or a replay string over `MAX_REPLAY_LEN` (8 KiB) |
+| `payload_too_large` | 413 | A body over `MAX_BODY_BYTES` (64 KiB) or a replay string over `MAX_REPLAY_LEN` (16 KiB, so even a worst-case plan at the cap fits; realistic links are about 6 KB or less) |
 | `invalid_fault_plan` | 422 | `FaultError`: an unknown event id, or a time overflow |
 | `plan_too_long` | 422 | Over `MAX_PLAN_FAULTS` |
 | `too_many_seeds`, `seed_overflow` | 422 | `SweepError` |

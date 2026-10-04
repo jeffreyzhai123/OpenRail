@@ -4,6 +4,7 @@
 
 mod app;
 mod config;
+pub mod encode;
 mod error;
 
 pub use app::app;
